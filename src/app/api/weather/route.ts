@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const lat = searchParams.get('lat');
   const lon = searchParams.get('lon');
-  const units = searchParams.get('units') || 'metric';
+  const units = searchParams.get('units') || 'imperial'; // Default to imperial units
 
   if (!lat || !lon) {
     return NextResponse.json({ error: 'Latitude and longitude query parameters are required' }, { status: 400 });
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const apiKey = process.env.OPENWEATHERMAP_API_KEY;
 
   // --- START DEBUG LOGGING ---
-  console.log("Attempting to use API Key:", apiKey); // Log the key value
+  console.log("Attempting to use API Key:", apiKey ? "Key present" : "Key missing"); // Log only presence, not the key
   // --- END DEBUG LOGGING ---
 
   if (!apiKey) {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     + `&lon=${encodeURIComponent(lon)}`
     + `&appid=${apiKey}`
     + `&units=${encodeURIComponent(units)}`;
-  console.log("Calling OpenWeatherMap URL:", apiUrl); // Log the URL being called
+  console.log("Calling OpenWeatherMap URL:", apiUrl.replace(apiKey, "API_KEY_HIDDEN")); // Log URL without exposing key
 
   try {
     const response = await fetch(apiUrl, { next: { revalidate: 600 } });
