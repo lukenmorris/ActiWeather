@@ -1,46 +1,64 @@
 // src/app/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react'; // Removed useCallback
+
+// Import Components
 import WeatherDisplay from '@/components/WeatherDisplay';
 import ActivityList from '@/components/ActivityList';
 import LocationSelector from '@/components/LocationSelector';
+
+// Import Hooks and Utils
 import useGeolocation from '@/hooks/useGeolocation';
-// Import types
-import type { WeatherData, GooglePlace } from '@/types'; // Adjust path if needed
-// Import mapping functions
 import { getSuitableCategories, getPlaceTypesForCategory } from '@/lib/activityMapper';
 
+// Import Types
+import type { Coordinates, WeatherData, GooglePlace } from '@/types';
+
+// --- Constants ---
+const DEFAULT_RADIUS_METERS = 5000; // 5km fixed search radius
+
 export default function Home() {
-  // --- Existing State ---
-  const { coordinates, error: geoError, loading: geoLoading } = useGeolocation();
+  // --- State Management (Simplified) ---
+
+  // Geolocation State - This is now the ONLY location source
+  const { coordinates: geoCoordinates, error: geoError, loading: geoLoading } = useGeolocation();
+
+  // Weather State
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState<boolean>(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
 
-  // --- NEW State for Places ---
-  const [places, setPlaces] = useState<GooglePlace[]>([]); // Initialize as empty array
+  // Places State
+  const [places, setPlaces] = useState<GooglePlace[]>([]);
   const [placesLoading, setPlacesLoading] = useState<boolean>(false);
   const [placesError, setPlacesError] = useState<string | null>(null);
 
-  // --- Existing useEffect for Weather ---
-  useEffect(() => {
-    const latitude = coordinates?.latitude;
-    const longitude = coordinates?.longitude;
+  // Preferences Modal State
+  const [isPrefsModalOpen, setIsPrefsModalOpen] = useState(false);
 
+  // --- Effect for Fetching Weather (Uses only geoCoordinates) ---
+  useEffect(() => {
+    const latitude = geoCoordinates?.latitude;
+    const longitude = geoCoordinates?.longitude;
+
+    // Fetch only if we have valid geolocation coordinates
     if (typeof latitude === 'number' && typeof longitude === 'number') {
+      console.log("Weather Effect: Geolocation coordinates available.");
       setWeatherLoading(true);
       setWeatherData(null);
       setWeatherError(null);
-      // Also clear places when location changes
-      setPlaces([]);
+      setPlaces([]); // Clear places when weather refetches due to location change
       setPlacesError(null);
-      setPlacesLoading(false); // Ensure places loading stops if location changes mid-fetch
 
       const fetchWeather = async () => {
         try {
           const response = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}&units=metric`);
-          if (!response.ok) { /* ... error handling ... */ throw new Error(/* ... */); }
+          if (!response.ok) {
+            let errorMsg = `Weather Error: ${response.status}`;
+            try { const d = await response.json(); errorMsg = d.error || errorMsg; } catch {}
+            throw new Error(errorMsg);
+          }
           const data: WeatherData = await response.json();
           setWeatherData(data);
         } catch (err: any) {
@@ -52,121 +70,89 @@ export default function Home() {
         }
       };
       fetchWeather();
+    } else {
+      // No valid geolocation coordinates yet
+      console.log("Weather Effect: Waiting for geolocation coordinates.");
+      setWeatherData(null);
+      setWeatherError(null);
+      setWeatherLoading(false); // Ensure loading is false if no coords
     }
-  }, [coordinates?.latitude, coordinates?.longitude]); // Depend on primitive coords
+  // Depend ONLY on the primitive values from the geolocation hook
+  }, [geoCoordinates?.latitude, geoCoordinates?.longitude]);
 
-  // --- NEW useEffect for Places (depends on weather and coordinates) ---
+
+  // --- Effect for Fetching Places (Uses only geoCoordinates and fixed radius) ---
   useEffect(() => {
-    const latitude = coordinates?.latitude;
-    const longitude = coordinates?.longitude;
+    const latitude = geoCoordinates?.latitude;
+    const longitude = geoCoordinates?.longitude;
+    const radius = DEFAULT_RADIUS_METERS; // Use fixed radius
 
-    // Only proceed if we have weather data AND valid coordinates
+    // Fetch only if we have weather AND valid geolocation coordinates
     if (weatherData && typeof latitude === 'number' && typeof longitude === 'number') {
-      console.log("Weather data available, fetching places...");
+      console.log("Places Effect: Weather data available, fetching places...");
       setPlacesLoading(true);
-      setPlaces([]); // Clear previous places
+      setPlaces([]);
       setPlacesError(null);
 
       const fetchPlacesForWeather = async () => {
         try {
-          // 1. Determine suitable activity categories
           const suitableCategories = getSuitableCategories(weatherData);
           if (suitableCategories.length === 0) {
             console.log("No suitable activity categories for current weather.");
-            setPlacesLoading(false);
-            return; // Nothing to search for
+            setPlaces([]); setPlacesLoading(false); return;
           }
-          console.log("Suitable Categories:", suitableCategories);
-
-          // 2. Get all unique place types for these categories
           const uniquePlaceTypes = new Set<string>();
           suitableCategories.forEach(category => {
-            const types = getPlaceTypesForCategory(category);
-            types.forEach(type => uniquePlaceTypes.add(type));
+            getPlaceTypesForCategory(category).forEach(type => uniquePlaceTypes.add(type));
           });
-          console.log("Unique Place Types to Search:", Array.from(uniquePlaceTypes));
-
           if (uniquePlaceTypes.size === 0) {
              console.log("No specific place types found for suitable categories.");
-             setPlacesLoading(false);
-             return;
+             setPlaces([]); setPlacesLoading(false); return;
           }
 
-          // 3. Prepare fetch promises for each type
-          const radius = 5000; // 5km radius - make configurable later
+          // Use fixed radius in the API call
           const fetchPromises = Array.from(uniquePlaceTypes).map(type => {
-            const apiUrl = `/api/places`
-            + `?lat=${latitude}`
-            + `&lon=${longitude}`
-            + `&radius=${radius}`
-            + `&type=${encodeURIComponent(type)}`;
-            console.log(`Preparing fetch for type: ${type}`);
-            return fetch(apiUrl); // Returns a Promise<Response>
+            const apiUrl = `/api/places?lat=${latitude}&lon=${longitude}&radius=${radius}&type=${type}`;
+            return fetch(apiUrl);
           });
 
-          // 4. Execute fetches in parallel and settle all
           const settledResponses = await Promise.allSettled(fetchPromises);
-          console.log("Places API responses settled:", settledResponses);
-
-          // 5. Process results
           const aggregatedPlaces: GooglePlace[] = [];
           const uniquePlaceIds = new Set<string>();
           let fetchErrors: string[] = [];
 
+          // Process results (same logic as before)
           for (const result of settledResponses) {
             if (result.status === 'fulfilled') {
-              const response = result.value; // This is the Response object
-              try {
-                if (response.ok) {
-                    // Our /api/places route now returns the array of GooglePlace objects directly
-                    const placesOfType: GooglePlace[] = await response.json();
-                    console.log(`Response OK, received ${placesOfType.length} places.`); // DEBUG Log
-                    placesOfType.forEach(place => {
-                      // **FIX:** Use place.id (from the new API structure) instead of place.place_id
-                      if (place.id && !uniquePlaceIds.has(place.id)) {
-                        uniquePlaceIds.add(place.id);
-                        aggregatedPlaces.push(place);
-                      } else if (!place.id) {
-                          console.warn("Received place without an ID:", place); // Log if a place lacks an ID
-                      }
-                    });
-                } else {
-                   // Handle non-OK response from our /api/places route
-                   let errorMsg = `API route failed (${response.status})`;
-                   try {
-                    const errorData = await response.json();
-                    errorMsg = errorData.error || errorMsg;
-                    console.warn(`API route non-OK response: ${errorMsg}`, errorData); // Log the specific error
-                    // Don't treat ZERO_RESULTS from Google (which our route might return as 200 OK with empty array) as critical frontend error here.
-                    // Only track errors explicitly returned from our route
-                    if (response.status !== 200 || errorData.error) { // Check if it was a real error status or had an error payload
-                       fetchErrors.push(errorMsg);
+                const response = result.value;
+                try {
+                    if(response.ok){
+                         const placesOfType: GooglePlace[] = await response.json();
+                         placesOfType.forEach(place => {
+                             if (place.id && !uniquePlaceIds.has(place.id)) {
+                                 uniquePlaceIds.add(place.id);
+                                 aggregatedPlaces.push(place);
+                             }
+                         });
+                    } else {
+                        let errorMsg = `API route failed (${response.status})`;
+                         try { const d = await response.json(); errorMsg = d.error || errorMsg; } catch {}
+                         if (response.status !== 200 || (response.status === 200 && errorMsg !== 'ZERO_RESULTS')) { // Log non-ZERO_RESULTS errors
+                             fetchErrors.push(errorMsg);
+                         }
                     }
-                } catch {
-                    fetchErrors.push(errorMsg); // Add generic message if error parsing failed
-                }
-                }
-              } catch (parseError) {
-                  console.error("Error parsing JSON response from /api/places", parseError);
-                  fetchErrors.push("Failed to process place results.");
-              }
-            } else {
-              // Handle rejected promises (network errors, etc.)
-              console.error("Fetch promise rejected:", result.reason);
-              fetchErrors.push(`Network error: ${result.reason?.message || 'Failed to fetch'}`);
-            }
-          }
+                } catch (e) { fetchErrors.push('Failed to process place results.'); console.error(e); }
+             } else {
+                fetchErrors.push(`Network error: ${result.reason?.message || 'Failed to fetch'}`);
+                console.error("Fetch promise rejected:", result.reason);
+             }
+          } // End processing loop
 
-          console.log(`Aggregated ${aggregatedPlaces.length} unique places.`);
-          setPlaces(aggregatedPlaces); // Update state with found places
-
-          // Set error state if any fetch failed critically (optional)
+          setPlaces(aggregatedPlaces);
           if (aggregatedPlaces.length === 0 && fetchErrors.length > 0) {
-            setPlacesError(`Could not fetch recommendations. ${fetchErrors.join('; ')}`);
+            setPlacesError(`Could not fetch recommendations. ${fetchErrors.slice(0,1).join('; ')}`);
           } else if (fetchErrors.length > 0) {
-             // Optionally set a non-blocking warning if some requests failed but others succeeded
              console.warn("Some place searches failed:", fetchErrors);
-             setPlacesError(null); // Or set a mild warning message
           }
 
         } catch (err: any) {
@@ -175,57 +161,62 @@ export default function Home() {
           setPlaces([]);
         } finally {
           setPlacesLoading(false);
-          console.log("Finished fetching places.");
         }
       };
-
       fetchPlacesForWeather();
     } else {
-         // Reset places if weather data becomes unavailable
-         if (!weatherData) {
-             setPlaces([]);
-             setPlacesError(null);
-             setPlacesLoading(false);
-         }
+      // Clear places if weather or geo coordinates become invalid/unavailable
+       console.log("Places Effect: Weather or geolocation coords invalid, clearing places.");
+       setPlaces([]);
+       setPlacesLoading(false);
+       setPlacesError(null);
     }
+  // Depend on weatherData object ref and geolocation coords primitives
+  }, [weatherData, geoCoordinates?.latitude, geoCoordinates?.longitude]);
 
-  // Depend on weatherData object reference and primitive coordinates
-  // Re-run when weather changes OR location changes
-  }, [weatherData, coordinates?.latitude, coordinates?.longitude]);
 
-  // --- Component Return ---
-  const isLoading = geoLoading || weatherLoading; // Still loading location or initial weather?
-  const displayError = geoError || weatherError; // Prioritize geo/weather errors
+  // --- Determine Overall Loading / Error State for UI (Simplified) ---
+  const isLoading = geoLoading || weatherLoading; // Loading if getting geo location OR fetching weather
+  const displayError = geoError || weatherError; // Show geo error first, then weather error
 
   return (
     <main className="flex min-h-screen flex-col items-center p-6 md:p-12 lg:p-24 bg-gradient-to-b from-sky-100 to-gray-100">
-      {/* ... Header ... */}
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex mb-8">
-         <h1 className="text-3xl md:text-4xl font-bold text-center lg:text-left text-slate-700 drop-shadow">
-           ActiWeather
-         </h1>
+      {/* Header Section */}
+      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex mb-6">
+        <h1 className="text-3xl md:text-4xl font-bold text-center lg:text-left text-slate-700 drop-shadow">
+          ActiWeather
+        </h1>
+        {/* Preferences Button */}
+        <button
+          onClick={() => setIsPrefsModalOpen(true)}
+          className="mt-2 lg:mt-0 px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+        >
+          Preferences
+        </button>
       </div>
 
+      {/* Main Content Grid */}
       <div className="container mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
         {/* Left Column */}
         <div className="md:col-span-1 space-y-4">
-          <LocationSelector />
+          {/* Location Selector only needs disabled prop now */}
+          <LocationSelector disabled={geoLoading} />
           <WeatherDisplay
             weatherData={weatherData}
-            isLoading={isLoading} // Pass combined loading state
-            error={displayError} // Pass combined error state
+            isLoading={isLoading} // Show loading if getting geo or weather
+            error={displayError} // Show relevant error
           />
         </div>
 
         {/* Right Column */}
         <div className="md:col-span-2">
-          {/* Pass places data and loading/error states to ActivityList */}
           <ActivityList
-             places={places}
-             placesLoading={placesLoading} // Pass places loading state
-             placesError={placesError}     // Pass places error state
-             userCoordinates={coordinates} // Pass user coords for distance calculation
-             weatherData={weatherData} // Keep passing weather if needed for display context
+            places={places}
+            placesLoading={placesLoading}
+            placesError={placesError}
+            // Pass the geolocation coordinates (or null)
+            userCoordinates={geoCoordinates}
+            weatherData={weatherData}
           />
         </div>
       </div>

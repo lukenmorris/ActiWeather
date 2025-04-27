@@ -45,20 +45,25 @@ export interface WeatherData {
   }
   
  // Interface for Google Place result using NEW Places API fields
-export interface GooglePlace {
-    id: string; // The unique place ID
-    displayName?: { // Object containing text and language code
+ export interface GooglePlace {
+    id: string;
+    displayName?: {
       text: string;
       languageCode?: string;
     };
-    types?: string[]; // Array of types associated with the place
-    location?: { // The latitude/longitude
+    types?: string[];
+    location?: {
       latitude: number;
       longitude: number;
     };
-    rating?: number; // The place's rating from 1.0 to 5.0
-    userRatingCount?: number; // Number of user ratings
-    formattedAddress?: string; // The structured address
+    rating?: number;
+    userRatingCount?: number;
+    formattedAddress?: string;
+    // ADDED opening hours structure based on field mask
+    currentOpeningHours?: {
+        openNow?: boolean; // This is the field we requested
+        // Other fields like periods, weekdayDescriptions exist but we didn't request them
+    };
     // Calculated distance property (added later in ActivityList)
     distance?: number; // In meters or km
   }

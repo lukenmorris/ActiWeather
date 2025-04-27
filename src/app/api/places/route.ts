@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
   // --- New Places API Configuration ---
   const googleApiUrl = 'https://places.googleapis.com/v1/places:searchNearby';
   // Define the fields we want from the API (controls cost and data)
-  const fieldMask = 'places.id,places.displayName,places.types,places.location,places.rating,places.userRatingCount,places.formattedAddress';
+  const fieldMask = 'places.id,places.displayName,places.types,places.location,places.rating,places.userRatingCount,places.formattedAddress,places.currentOpeningHours.openNow';
 
   // Construct the request body for the POST request
   const requestBody: GooglePlacesRequestBody = {
