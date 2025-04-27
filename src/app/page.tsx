@@ -1,103 +1,234 @@
-import Image from "next/image";
+// src/app/page.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import WeatherDisplay from '@/components/WeatherDisplay';
+import ActivityList from '@/components/ActivityList';
+import LocationSelector from '@/components/LocationSelector';
+import useGeolocation from '@/hooks/useGeolocation';
+// Import types
+import type { WeatherData, GooglePlace } from '@/types'; // Adjust path if needed
+// Import mapping functions
+import { getSuitableCategories, getPlaceTypesForCategory } from '@/lib/activityMapper';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  // --- Existing State ---
+  const { coordinates, error: geoError, loading: geoLoading } = useGeolocation();
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState<boolean>(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  // --- NEW State for Places ---
+  const [places, setPlaces] = useState<GooglePlace[]>([]); // Initialize as empty array
+  const [placesLoading, setPlacesLoading] = useState<boolean>(false);
+  const [placesError, setPlacesError] = useState<string | null>(null);
+
+  // --- Existing useEffect for Weather ---
+  useEffect(() => {
+    const latitude = coordinates?.latitude;
+    const longitude = coordinates?.longitude;
+
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      setWeatherLoading(true);
+      setWeatherData(null);
+      setWeatherError(null);
+      // Also clear places when location changes
+      setPlaces([]);
+      setPlacesError(null);
+      setPlacesLoading(false); // Ensure places loading stops if location changes mid-fetch
+
+      const fetchWeather = async () => {
+        try {
+          const response = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}&units=metric`);
+          if (!response.ok) { /* ... error handling ... */ throw new Error(/* ... */); }
+          const data: WeatherData = await response.json();
+          setWeatherData(data);
+        } catch (err: any) {
+          console.error("Failed to fetch weather:", err);
+          setWeatherError(err.message || 'Could not fetch weather data.');
+          setWeatherData(null);
+        } finally {
+          setWeatherLoading(false);
+        }
+      };
+      fetchWeather();
+    }
+  }, [coordinates?.latitude, coordinates?.longitude]); // Depend on primitive coords
+
+  // --- NEW useEffect for Places (depends on weather and coordinates) ---
+  useEffect(() => {
+    const latitude = coordinates?.latitude;
+    const longitude = coordinates?.longitude;
+
+    // Only proceed if we have weather data AND valid coordinates
+    if (weatherData && typeof latitude === 'number' && typeof longitude === 'number') {
+      console.log("Weather data available, fetching places...");
+      setPlacesLoading(true);
+      setPlaces([]); // Clear previous places
+      setPlacesError(null);
+
+      const fetchPlacesForWeather = async () => {
+        try {
+          // 1. Determine suitable activity categories
+          const suitableCategories = getSuitableCategories(weatherData);
+          if (suitableCategories.length === 0) {
+            console.log("No suitable activity categories for current weather.");
+            setPlacesLoading(false);
+            return; // Nothing to search for
+          }
+          console.log("Suitable Categories:", suitableCategories);
+
+          // 2. Get all unique place types for these categories
+          const uniquePlaceTypes = new Set<string>();
+          suitableCategories.forEach(category => {
+            const types = getPlaceTypesForCategory(category);
+            types.forEach(type => uniquePlaceTypes.add(type));
+          });
+          console.log("Unique Place Types to Search:", Array.from(uniquePlaceTypes));
+
+          if (uniquePlaceTypes.size === 0) {
+             console.log("No specific place types found for suitable categories.");
+             setPlacesLoading(false);
+             return;
+          }
+
+          // 3. Prepare fetch promises for each type
+          const radius = 5000; // 5km radius - make configurable later
+          const fetchPromises = Array.from(uniquePlaceTypes).map(type => {
+            const apiUrl = `/api/places`
+            + `?lat=${latitude}`
+            + `&lon=${longitude}`
+            + `&radius=${radius}`
+            + `&type=${encodeURIComponent(type)}`;
+            console.log(`Preparing fetch for type: ${type}`);
+            return fetch(apiUrl); // Returns a Promise<Response>
+          });
+
+          // 4. Execute fetches in parallel and settle all
+          const settledResponses = await Promise.allSettled(fetchPromises);
+          console.log("Places API responses settled:", settledResponses);
+
+          // 5. Process results
+          const aggregatedPlaces: GooglePlace[] = [];
+          const uniquePlaceIds = new Set<string>();
+          let fetchErrors: string[] = [];
+
+          for (const result of settledResponses) {
+            if (result.status === 'fulfilled') {
+              const response = result.value; // This is the Response object
+              try {
+                if (response.ok) {
+                    // Our /api/places route now returns the array of GooglePlace objects directly
+                    const placesOfType: GooglePlace[] = await response.json();
+                    console.log(`Response OK, received ${placesOfType.length} places.`); // DEBUG Log
+                    placesOfType.forEach(place => {
+                      // **FIX:** Use place.id (from the new API structure) instead of place.place_id
+                      if (place.id && !uniquePlaceIds.has(place.id)) {
+                        uniquePlaceIds.add(place.id);
+                        aggregatedPlaces.push(place);
+                      } else if (!place.id) {
+                          console.warn("Received place without an ID:", place); // Log if a place lacks an ID
+                      }
+                    });
+                } else {
+                   // Handle non-OK response from our /api/places route
+                   let errorMsg = `API route failed (${response.status})`;
+                   try {
+                    const errorData = await response.json();
+                    errorMsg = errorData.error || errorMsg;
+                    console.warn(`API route non-OK response: ${errorMsg}`, errorData); // Log the specific error
+                    // Don't treat ZERO_RESULTS from Google (which our route might return as 200 OK with empty array) as critical frontend error here.
+                    // Only track errors explicitly returned from our route
+                    if (response.status !== 200 || errorData.error) { // Check if it was a real error status or had an error payload
+                       fetchErrors.push(errorMsg);
+                    }
+                } catch {
+                    fetchErrors.push(errorMsg); // Add generic message if error parsing failed
+                }
+                }
+              } catch (parseError) {
+                  console.error("Error parsing JSON response from /api/places", parseError);
+                  fetchErrors.push("Failed to process place results.");
+              }
+            } else {
+              // Handle rejected promises (network errors, etc.)
+              console.error("Fetch promise rejected:", result.reason);
+              fetchErrors.push(`Network error: ${result.reason?.message || 'Failed to fetch'}`);
+            }
+          }
+
+          console.log(`Aggregated ${aggregatedPlaces.length} unique places.`);
+          setPlaces(aggregatedPlaces); // Update state with found places
+
+          // Set error state if any fetch failed critically (optional)
+          if (aggregatedPlaces.length === 0 && fetchErrors.length > 0) {
+            setPlacesError(`Could not fetch recommendations. ${fetchErrors.join('; ')}`);
+          } else if (fetchErrors.length > 0) {
+             // Optionally set a non-blocking warning if some requests failed but others succeeded
+             console.warn("Some place searches failed:", fetchErrors);
+             setPlacesError(null); // Or set a mild warning message
+          }
+
+        } catch (err: any) {
+          console.error("Error fetching places data:", err);
+          setPlacesError(err.message || "An error occurred while finding activities.");
+          setPlaces([]);
+        } finally {
+          setPlacesLoading(false);
+          console.log("Finished fetching places.");
+        }
+      };
+
+      fetchPlacesForWeather();
+    } else {
+         // Reset places if weather data becomes unavailable
+         if (!weatherData) {
+             setPlaces([]);
+             setPlacesError(null);
+             setPlacesLoading(false);
+         }
+    }
+
+  // Depend on weatherData object reference and primitive coordinates
+  // Re-run when weather changes OR location changes
+  }, [weatherData, coordinates?.latitude, coordinates?.longitude]);
+
+  // --- Component Return ---
+  const isLoading = geoLoading || weatherLoading; // Still loading location or initial weather?
+  const displayError = geoError || weatherError; // Prioritize geo/weather errors
+
+  return (
+    <main className="flex min-h-screen flex-col items-center p-6 md:p-12 lg:p-24 bg-gradient-to-b from-sky-100 to-gray-100">
+      {/* ... Header ... */}
+      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex mb-8">
+         <h1 className="text-3xl md:text-4xl font-bold text-center lg:text-left text-slate-700 drop-shadow">
+           ActiWeather
+         </h1>
+      </div>
+
+      <div className="container mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
+        {/* Left Column */}
+        <div className="md:col-span-1 space-y-4">
+          <LocationSelector />
+          <WeatherDisplay
+            weatherData={weatherData}
+            isLoading={isLoading} // Pass combined loading state
+            error={displayError} // Pass combined error state
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+        {/* Right Column */}
+        <div className="md:col-span-2">
+          {/* Pass places data and loading/error states to ActivityList */}
+          <ActivityList
+             places={places}
+             placesLoading={placesLoading} // Pass places loading state
+             placesError={placesError}     // Pass places error state
+             userCoordinates={coordinates} // Pass user coords for distance calculation
+             weatherData={weatherData} // Keep passing weather if needed for display context
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        </div>
+      </div>
+    </main>
   );
 }
