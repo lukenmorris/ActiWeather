@@ -1,5 +1,5 @@
 // src/lib/activityMapper.ts
-import type { WeatherData } from '@/types'; // Ensure WeatherData type is imported
+import type { GooglePlace, WeatherData } from '@/types'; // Ensure WeatherData type is imported
 
 // ActivityCategory enum remains the same
 export enum ActivityCategory {
