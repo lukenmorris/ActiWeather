@@ -6,23 +6,22 @@ import React, { useState, useEffect } from 'react';
 // Import Components
 import WeatherDisplay from '@/components/WeatherDisplay';
 import ActivityList from '@/components/ActivityList';
-import LocationSelector from '@/components/LocationSelector'; // Used for geo status display
-// Removed PreferencesModal import
+import LocationSelector from '@/components/LocationSelector';
 
 // Import Hooks and Utils
 import useGeolocation from '@/hooks/useGeolocation';
-import { getSuitableCategories, getPlaceTypesForCategory } from '@/lib/activityMapper'; // For AI fallback
+import { getSuitableCategories, getPlaceTypesForCategory } from '@/lib/activityMapper';
 
 // Import Types
 import type { Coordinates, WeatherData, GooglePlace } from '@/types';
 
+// Import Lucide icons
+import { Activity, MapPin, Filter, Map, Settings } from 'lucide-react';
+
 // --- Constants ---
-const DEFAULT_RADIUS_METERS = 5000; // 5km fixed search radius
+const DEFAULT_RADIUS_METERS = 5000;
 
 export default function Home() {
-  // --- State Management ---
-
-  // Geolocation State
   const { coordinates: geoCoordinates, error: geoError, loading: geoLoading } = useGeolocation();
 
   // Weather State
@@ -41,44 +40,45 @@ export default function Home() {
   const [placesLoading, setPlacesLoading] = useState<boolean>(false);
   const [placesError, setPlacesError] = useState<string | null>(null);
 
-  // Removed Preferences Modal State
-
   // Theme State
   const [theme, setTheme] = useState('theme-default');
 
+  // View State
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+
   // --- Helper Functions for Theme ---
   const getWeatherTheme = (weather: WeatherData | null): string => {
-      if (!weather) return 'theme-default';
-      const condition = weather.weather[0]?.main.toLowerCase();
-      const isDay = (weather.sys?.sunrise && weather.sys?.sunset && weather.dt)
-                    ? (weather.dt > weather.sys.sunrise && weather.dt < weather.sys.sunset)
-                    : true; // Default to day
-      const cloudiness = weather.clouds?.all ?? 0;
+    if (!weather) return 'theme-default';
+    const condition = weather.weather[0]?.main.toLowerCase();
+    const isDay = (weather.sys?.sunrise && weather.sys?.sunset && weather.dt)
+                  ? (weather.dt > weather.sys.sunrise && weather.dt < weather.sys.sunset)
+                  : true;
+    const cloudiness = weather.clouds?.all ?? 0;
 
-      switch (condition) {
-          case 'clear': return isDay ? 'theme-clear-day' : 'theme-clear-night';
-          case 'clouds':
-              if (cloudiness > 75) return isDay ? 'theme-overcast-day' : 'theme-cloudy-night';
-              return isDay ? 'theme-cloudy-day' : 'theme-cloudy-night';
-          case 'rain': case 'drizzle': case 'thunderstorm': return 'theme-rainy';
-          case 'snow': return 'theme-snowy';
-          case 'atmosphere': return 'theme-foggy';
-          default: return 'theme-default';
-      }
+    switch (condition) {
+      case 'clear': return isDay ? 'theme-clear-day' : 'theme-clear-night';
+      case 'clouds':
+        if (cloudiness > 75) return isDay ? 'theme-overcast-day' : 'theme-cloudy-night';
+        return isDay ? 'theme-cloudy-day' : 'theme-cloudy-night';
+      case 'rain': case 'drizzle': case 'thunderstorm': return 'theme-rainy';
+      case 'snow': return 'theme-snowy';
+      case 'atmosphere': return 'theme-foggy';
+      default: return 'theme-default';
+    }
   };
 
   const getThemeClasses = (currentTheme: string): string => {
-      switch(currentTheme) {
-          case 'theme-clear-day': return 'bg-gradient-to-br from-sky-400 via-blue-500 to-blue-600 text-white';
-          case 'theme-clear-night': return 'bg-gradient-to-br from-slate-800 via-indigo-900 to-black text-slate-100';
-          case 'theme-cloudy-day': return 'bg-gradient-to-br from-slate-300 via-gray-400 to-slate-500 text-slate-800';
-          case 'theme-overcast-day': return 'bg-gradient-to-br from-gray-400 via-slate-500 to-slate-600 text-white';
-          case 'theme-cloudy-night': return 'bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800 text-slate-200';
-          case 'theme-rainy': return 'bg-gradient-to-br from-blue-600 via-slate-700 to-gray-800 text-blue-50';
-          case 'theme-snowy': return 'bg-gradient-to-br from-sky-100 via-slate-200 to-gray-300 text-slate-700';
-          case 'theme-foggy': return 'bg-gradient-to-br from-gray-400 via-slate-400 to-gray-500 text-slate-800';
-          default: return 'bg-slate-100 text-slate-800';
-      }
+    switch(currentTheme) {
+      case 'theme-clear-day': return 'bg-gradient-to-br from-sky-400 via-blue-500 to-blue-600 text-white';
+      case 'theme-clear-night': return 'bg-gradient-to-br from-slate-800 via-indigo-900 to-black text-slate-100';
+      case 'theme-cloudy-day': return 'bg-gradient-to-br from-slate-300 via-gray-400 to-slate-500 text-slate-800';
+      case 'theme-overcast-day': return 'bg-gradient-to-br from-gray-400 via-slate-500 to-slate-600 text-white';
+      case 'theme-cloudy-night': return 'bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800 text-slate-200';
+      case 'theme-rainy': return 'bg-gradient-to-br from-blue-600 via-slate-700 to-gray-800 text-blue-50';
+      case 'theme-snowy': return 'bg-gradient-to-br from-sky-100 via-slate-200 to-gray-300 text-slate-700';
+      case 'theme-foggy': return 'bg-gradient-to-br from-gray-400 via-slate-400 to-gray-500 text-slate-800';
+      default: return 'bg-slate-100 text-slate-800';
+    }
   };
 
   // --- Effect for Updating Theme ---
@@ -87,8 +87,7 @@ export default function Home() {
     setTheme(newTheme);
   }, [weatherData]);
 
-
-  // --- Effect for Fetching Weather AND THEN AI Summary (Uses only geoCoordinates) ---
+  // --- Effect for Fetching Weather AND THEN AI Summary ---
   useEffect(() => {
     const latitude = geoCoordinates?.latitude;
     const longitude = geoCoordinates?.longitude;
@@ -103,7 +102,6 @@ export default function Home() {
       const fetchWeatherAndSummary = async () => {
         let fetchedWeatherData: WeatherData | null = null;
         try {
-          // Fetch Weather - Updated to use imperial units
           const weatherResponse = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}&units=imperial`);
           if (!weatherResponse.ok) {
             let errorMsg = `Weather Error: ${weatherResponse.status}`;
@@ -114,7 +112,6 @@ export default function Home() {
           setWeatherData(fetchedWeatherData);
           setWeatherLoading(false);
 
-          // Fetch AI Summary
           if (fetchedWeatherData) {
             setSummaryLoading(true);
             const summaryResponse = await fetch('/api/generate-summary', {
@@ -157,15 +154,13 @@ export default function Home() {
       };
       fetchWeatherAndSummary();
     } else {
-      // Clear states if no valid coordinates
       setWeatherData(null); setWeatherError(null); setWeatherLoading(false);
       setPlaces([]); setPlacesError(null); setPlacesLoading(false);
       setSummaryText(null); setSuggestedTypes(null); setSummaryError(null); setSummaryLoading(false);
     }
   }, [geoCoordinates?.latitude, geoCoordinates?.longitude]);
 
-
-  // --- Effect for Fetching Places (Depends on AI suggestedTypes) ---
+  // --- Effect for Fetching Places ---
   useEffect(() => {
     const latitude = geoCoordinates?.latitude;
     const longitude = geoCoordinates?.longitude;
@@ -195,7 +190,6 @@ export default function Home() {
           const uniquePlaceIds = new Set<string>();
           let fetchErrors: string[] = [];
 
-          // Process settled results
           console.log("Processing settled places responses...");
           for (const result of settledResponses) {
             if (result.status === 'fulfilled') {
@@ -213,7 +207,7 @@ export default function Home() {
                   const errorData = placesOfType as { error?: string, details?: string };
                   const errorMsg = errorData?.error || `API route failed (${response.status})`;
                   const errorDetails = errorData?.details;
-                  if (errorDetails !== 'ZERO_RESULTS') { // Log non-ZERO_RESULTS errors
+                  if (errorDetails !== 'ZERO_RESULTS') {
                     fetchErrors.push(`${errorMsg}`);
                     console.warn(`Places API route error: ${errorMsg}`, errorData);
                   }
@@ -225,7 +219,7 @@ export default function Home() {
               fetchErrors.push(`Network error: ${result.reason?.message || 'Failed to fetch'}`);
               console.error("Fetch promise to /api/places rejected:", result.reason);
             }
-          } // End processing loop
+          }
 
           console.log(`Aggregated ${aggregatedPlaces.length} unique places.`);
           setPlaces(aggregatedPlaces);
@@ -246,13 +240,11 @@ export default function Home() {
       };
       fetchPlacesForSuggestions();
     } else {
-      // Clear places if no suggested types or coords invalid
       setPlaces([]);
       setPlacesLoading(false);
       setPlacesError(null);
     }
   }, [suggestedTypes, geoCoordinates?.latitude, geoCoordinates?.longitude]);
-
 
   // --- Determine Overall Loading / Error State for UI ---
   const isPageLoading = geoLoading || weatherLoading || summaryLoading;
@@ -260,71 +252,156 @@ export default function Home() {
 
   // --- Component Return ---
   return (
-    <main className={`flex min-h-screen flex-col items-center ${getThemeClasses(theme)} transition-colors duration-700 ease-in-out`}>
-      {/* Header Section */}
+    <main className={`flex min-h-screen flex-col ${getThemeClasses(theme)} transition-colors duration-700 ease-in-out`}>
+      {/* Header */}
       <header className={`sticky top-0 z-40 w-full border-b backdrop-blur-md transition-colors duration-500 ease-in-out ${
-           theme.includes('night') || theme.includes('rainy') || theme === 'theme-overcast-day'
-           ? 'border-white/20 bg-black/10 text-white'
-           : 'border-gray-200/50 bg-white/20 text-inherit'
-       }`}>
-        <div className="container mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+        theme.includes('night') || theme.includes('rainy') || theme === 'theme-overcast-day'
+          ? 'border-white/20 bg-black/10 text-white'
+          : 'border-gray-200/50 bg-white/20 text-inherit'
+      }`}>
+        <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Activity className="w-6 h-6" />
             ActiWeather
           </h1>
-          {/* Preferences button removed */}
+          
+          <div className="flex items-center gap-4">
+            {/* View Toggle */}
+            <div className="hidden md:flex items-center gap-2 p-1 rounded-lg bg-white/10">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'list' ? 'bg-white/20' : 'hover:bg-white/10'
+                }`}
+              >
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('map')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'map' ? 'bg-white/20' : 'hover:bg-white/10'
+                }`}
+              >
+                Map
+              </button>
+            </div>
+            
+            {/* Filter Button (placeholder for future) */}
+            <button 
+              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Filter activities"
+            >
+              <Filter className="w-5 h-5" />
+            </button>
+            
+            {/* Settings Button (placeholder for future) */}
+            <button 
+              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <div className="container mx-auto w-full max-w-5xl flex-grow p-4 md:p-6 lg:p-8">
-         {isPageLoading && (
-            <div className="flex justify-center items-center py-10 text-lg font-medium opacity-80">
-                Loading Weather & Suggestions...
+      <div className="container mx-auto w-full max-w-6xl flex-grow p-4 md:p-6 lg:p-8">
+        {isPageLoading && (
+          <div className="flex justify-center items-center py-20 text-lg font-medium opacity-80">
+            <div className="text-center space-y-4">
+              <div className="animate-pulse">
+                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>Analyzing conditions and finding activities...</p>
+                {geoLoading && <p className="text-sm opacity-70">Getting your location...</p>}
+                {weatherLoading && <p className="text-sm opacity-70">Checking weather...</p>}
+                {summaryLoading && <p className="text-sm opacity-70">Generating recommendations...</p>}
+              </div>
             </div>
-         )}
-         {displayError && !isPageLoading && (
-             <div className="p-4 mb-6 rounded-md bg-red-100/80 text-red-700 text-center">
-                Error: {displayError}
-             </div>
-         )}
+          </div>
+        )}
+        
+        {displayError && !isPageLoading && (
+          <div className="p-6 mb-6 rounded-xl bg-red-100/20 backdrop-blur-sm text-red-200 text-center max-w-2xl mx-auto">
+            <p className="font-medium text-lg mb-2">Unable to load recommendations</p>
+            <p className="text-sm opacity-80">{displayError}</p>
+            {geoError && (
+              <p className="text-xs mt-4 opacity-70">
+                Please enable location access in your browser settings and refresh the page.
+              </p>
+            )}
+          </div>
+        )}
 
         {!isPageLoading && !displayError && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column */}
-            <div className="lg:col-span-1 space-y-6">
-              <LocationSelector disabled={geoLoading} />
-              <WeatherDisplay
-                weatherData={weatherData}
-                isLoading={false}
-                error={null}
-              />
+          <div className="space-y-6">
+            {/* AI Summary Display - Full Width */}
+            <div className={`p-6 rounded-xl shadow-lg backdrop-blur-md ${
+              theme.includes('night') || theme.includes('rainy') || theme === 'theme-overcast-day'
+                ? 'bg-black/20 text-white/90 border border-white/10'
+                : 'bg-white/30 text-inherit border border-white/20'
+            }`}>
+              <div className="max-w-4xl mx-auto text-center">
+                {summaryLoading && <p className="text-sm italic opacity-80">Generating personalized suggestions...</p>}
+                {summaryError && !summaryLoading && <p className="text-sm text-orange-400">{summaryError}</p>}
+                {summaryText && !summaryLoading && !summaryError && (
+                  <>
+                    <p className="text-lg md:text-xl font-medium">{summaryText}</p>
+                    <div className="flex items-center justify-center gap-6 mt-4 text-sm opacity-70">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        <span>{weatherData?.name || 'Your Location'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Map className="w-4 h-4" />
+                        <span>{places.length} places found</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+                {!summaryLoading && !summaryError && !summaryText && weatherData && (
+                  <p className="text-sm italic opacity-70">Checking for suggestions...</p>
+                )}
+                {!weatherData && !geoError && (
+                  <p className="text-sm opacity-70">Waiting for location and weather data...</p>
+                )}
+              </div>
             </div>
 
-            {/* Right Column */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* AI Summary Display */}
-              <div className={`p-4 rounded-xl shadow-lg min-h-[70px] flex items-center justify-center ${theme.includes('night') || theme.includes('rainy') || theme === 'theme-overcast-day' ? 'bg-black/20 text-white/90' : 'bg-white/30 backdrop-blur-sm text-inherit' }`}>
-                  {summaryLoading && <p className="text-sm italic opacity-80">Generating suggestions...</p>}
-                  {summaryError && !summaryLoading && <p className="text-sm text-orange-400">{summaryError}</p>}
-                  {summaryText && !summaryLoading && !summaryError && <p className="text-md text-center font-medium">{summaryText}</p>}
-                  {!summaryLoading && !summaryError && !summaryText && weatherData && <p className="text-sm italic opacity-70">Checking for suggestions...</p>}
-                  {!weatherData && !geoError && <p className="text-sm italic opacity-70">Waiting for location and weather...</p>}
+            {/* Main Content Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column - Weather & Location */}
+              <div className="lg:col-span-1 space-y-6">
+                <LocationSelector disabled={geoLoading} />
+                <WeatherDisplay
+                  weatherData={weatherData}
+                  isLoading={false}
+                  error={null}
+                />
               </div>
 
-              {/* Activity List */}
-              <ActivityList
-                places={places}
-                placesLoading={placesLoading}
-                placesError={placesError}
-                userCoordinates={geoCoordinates} // Pass the geolocation coordinates
-                weatherData={weatherData}
-              />
+              {/* Right Column - Activities */}
+              <div className="lg:col-span-2">
+                {viewMode === 'list' ? (
+                  <ActivityList
+                    places={places}
+                    placesLoading={placesLoading}
+                    placesError={placesError}
+                    userCoordinates={geoCoordinates}
+                    weatherData={weatherData}
+                  />
+                ) : (
+                  <div className="p-8 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 text-center">
+                    <Map className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">Map View Coming Soon</p>
+                    <p className="text-sm opacity-70">Interactive map with all activities will be available here</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
       </div>
-
-      {/* Preferences Modal Removed */}
     </main>
   );
 }
