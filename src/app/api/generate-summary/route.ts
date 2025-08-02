@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
         console.log("Received raw AI response:", aiTextOutput);
 
         // --- Step 5: Parse and Validate AI Response ---
-        let parsedResponse: AiResponseFormat;
+        let parsedResponse: AiResponseFormat | null = null; // Initialize as null instead of using type annotation only
         // Assign raw output before attempting cleanup/parsing
         jsonString = aiTextOutput;
 
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
         parsedResponse = JSON.parse(jsonString);
 
         // Validate structure
-        if (!parsedResponse.summaryText || !Array.isArray(parsedResponse.suggestedPlaceTypes)) {
+        if (!parsedResponse || !parsedResponse.summaryText || !Array.isArray(parsedResponse.suggestedPlaceTypes)) {
             throw new Error("AI response missing required keys (summaryText, suggestedPlaceTypes) or invalid array format.");
         }
 

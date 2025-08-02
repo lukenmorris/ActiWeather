@@ -1,5 +1,5 @@
 // src/lib/geoUtils.ts
-import type { GooglePlace, WeatherData } from '@/types'; // Import necessary types
+import type { GooglePlace, WeatherData } from '@/types';
 
 /**
  * Calculates the great-circle distance between two points
@@ -45,12 +45,8 @@ export function formatDistance(distanceInKm: number): string {
     return `${distanceInMiles.toFixed(1)} mi`; // Show miles rounded to 1 decimal
 }
 
-
 // --- Constants for Weather Suitability ---
-const SUITABILITY_SCORE_SCALE = 100; // Score range 0-100
-const BASE_SCORE = 50;
-
-// Weather Thresholds in Fahrenheit & mph
+// Temperature Thresholds in Fahrenheit
 const TEMP_FREEZING = 32;
 const TEMP_COLD = 46;
 const TEMP_COOL = 61;
@@ -59,184 +55,324 @@ const TEMP_MILD_HIGH = 79;
 const TEMP_WARM = 84;
 const TEMP_HOT = 91;
 
+// Wind Thresholds in mph
 const WIND_CALM_MPH = 7;
 const WIND_BREEZY_MPH = 16;
 const WIND_WINDY_MPH = 25;
 
+// Other weather thresholds
 const CLOUDS_OVERCAST = 80; // %
-const VISIBILITY_POOR = 1000; // meters (visibility typically still reported in meters)
+const VISIBILITY_POOR = 1000; // meters
 const HUMIDITY_HIGH = 75; // %
 
-// Helper function to convert Celsius to Fahrenheit if needed
-function ensureFahrenheit(temp: number, weatherData: WeatherData): number {
-  // Simple heuristic: if temp is low, it's likely Celsius
-  const isLikelyCelsius = temp < 50;
-  if (isLikelyCelsius) {
-    return (temp * 9/5) + 32;
-  }
-  return temp;
-}
-
-// Helper function to convert m/s to mph if needed
-function ensureMph(speed: number, weatherData: WeatherData): number {
-  // Simple heuristic: if wind speed is low, it's likely m/s
-  const isLikelyMS = speed < 10;
-  if (isLikelyMS) {
-    return speed * 2.237; // Convert m/s to mph
-  }
-  return speed;
-}
-
-// Place Type Classifications (can be shared or kept here)
+// Place Type Classifications
 const INDOOR_HEAVY_TYPES = new Set([
     'museum', 'movie_theater', 'library', 'aquarium', 'shopping_mall', 'gym',
     'bowling_alley', 'spa', 'art_gallery', 'performing_arts_theater',
-    'casino', 'beauty_salon', 'hair_care', 'nail_salon'
-]);
-const OUTDOOR_HEAVY_TYPES = new Set([
-    'park', 'hiking_area', 'campground', 'zoo', 'amusement_park', 'stadium',
-    'golf_course', 'playground', 'garden', 'picnic_ground', 'marina'
-]);
-const MIXED_ADAPTABLE_TYPES = new Set([
-    'restaurant', 'cafe', 'bar', 'tourist_attraction',
+    'casino', 'beauty_salon', 'hair_care', 'nail_salon', 'skating_rink',
+    'amusement_center', 'book_store', 'clothing_store', 'department_store',
+    'electronics_store', 'furniture_store', 'home_goods_store', 'jewelry_store',
+    'shoe_store', 'pet_store'
 ]);
 
+const OUTDOOR_HEAVY_TYPES = new Set([
+    'park', 'hiking_area', 'campground', 'zoo', 'amusement_park', 'stadium',
+    'golf_course', 'playground', 'garden', 'picnic_ground', 'marina', 'beach',
+    'swimming_pool', 'tourist_attraction', 'viewpoint', 'plaza'
+]);
+
+const MIXED_ADAPTABLE_TYPES = new Set([
+    'restaurant', 'cafe', 'bar', 'tourist_attraction', 'food_court',
+    'meal_takeaway', 'bakery', 'ice_cream_shop'
+]);
+
+// Special place types for specific conditions
+const LATE_NIGHT_FRIENDLY = new Set([
+    'bar', 'night_club', 'casino', 'convenience_store', 'supermarket',
+    'liquor_store', '24_hour_restaurant', 'diner', 'meal_takeaway'
+]);
+
+const WEATHER_REFUGE_TYPES = new Set([
+    'shopping_mall', 'museum', 'library', 'movie_theater', 'spa',
+    'cafe', 'restaurant', 'book_store', 'art_gallery'
+]);
 
 /**
  * Calculates a detailed weather suitability score for a place.
  * Higher score (0-100) means more suitable for the current weather.
  * @param place The GooglePlace object (potentially including details like outdoorSeating)
  * @param weatherData The current weather data (EXPECTS FAHRENHEIT/MPH)
+ * @param debug Optional flag to enable debug logging
  * @returns A numerical score between 0 and 100.
  */
 export function calculateWeatherSuitability(
-    place: GooglePlace | (GooglePlace & { distance?: number }), // Accept place object
-    weatherData: WeatherData | null
+    place: GooglePlace | (GooglePlace & { distance?: number }),
+    weatherData: WeatherData | null,
+    debug: boolean = false
 ): number {
-    let score = BASE_SCORE;
-    if (!weatherData || !place?.types) return score;
+    // Start with a higher base score to allow more differentiation
+    let score = 70;
+    const scoreAdjustments: string[] = []; // Track adjustments for debugging
+    
+    if (!weatherData || !place?.types) {
+        if (debug) console.log(`[Scoring] No weather data or place types for ${place?.displayName?.text || 'Unknown'}`);
+        return score;
+    }
+
+    // Helper function to adjust score and track changes
+    const adjustScore = (amount: number, reason: string) => {
+        score += amount;
+        if (debug) scoreAdjustments.push(`${amount >= 0 ? '+' : ''}${amount}: ${reason}`);
+    };
 
     // --- Extract Weather Parameters ---
-    const conditionId = weatherData.weather[0]?.id ?? 800; // Default to clear if missing
-    
-    // Ensure units are in Fahrenheit/mph regardless of what's passed in
-    const feelsLike = ensureFahrenheit(weatherData.main.feels_like, weatherData);
-    const windSpeedMph = ensureMph(weatherData.wind.speed, weatherData);
-    
+    const conditionId = weatherData.weather[0]?.id ?? 800;
+    const weatherMain = weatherData.weather[0]?.main || 'Clear';
+    const feelsLike = weatherData.main.feels_like; // Trust imperial units from API
+    const windSpeedMph = weatherData.wind.speed;
     const clouds = weatherData.clouds.all;
     const visibility = weatherData.visibility;
     const humidity = weatherData.main.humidity;
 
-    // Determine day/night using sunrise/sunset times
+    // Determine day/night
     const currentTimeUTC = weatherData.dt;
     const sunriseUTC = weatherData.sys.sunrise;
     const sunsetUTC = weatherData.sys.sunset;
     const isNightTime = !(sunriseUTC && sunsetUTC && currentTimeUTC > sunriseUTC && currentTimeUTC < sunsetUTC);
 
-    // Calculate Local Hour for potentially more granular logic (optional)
+    // Calculate Local Hour
     const localDate = new Date((weatherData.dt + weatherData.timezone) * 1000);
-    const localHour = localDate.getUTCHours(); // Hour (0-23) in location's timezone
-    const isLateNight = localHour < 6 || localHour >= 23; // Example: Before 6 AM or 11 PM onwards
+    const localHour = localDate.getUTCHours();
+    const isLateNight = localHour < 6 || localHour >= 23;
+    const isEarlyMorning = localHour >= 6 && localHour < 9;
+    const isEvening = localHour >= 17 && localHour < 23;
 
-    // --- Determine Weather Regime ---
-    let regime: 'PERFECT' | 'GOOD' | 'POOR' | 'NEUTRAL' = 'NEUTRAL';
-    // Precipitation check (OWM IDs: 2xx=Thunder, 3xx=Drizzle, 5xx=Rain, 6xx=Snow)
+    // --- Categorize Weather Conditions ---
     const isPrecipitating = conditionId && [2, 3, 5, 6].includes(Math.floor(conditionId / 100));
-    const isLightPrecipitation = conditionId && [300, 301, 500, 520, 600, 615, 620].includes(conditionId);
+    const isHeavyPrecip = conditionId && [
+        202, 212, 221, 232, // Heavy thunderstorm
+        502, 503, 504, 522, 531, // Heavy rain
+        602, 622 // Heavy snow
+    ].includes(conditionId);
+    const isLightPrecip = isPrecipitating && !isHeavyPrecip;
+    const isThunderstorm = Math.floor(conditionId / 100) === 2;
+    const isSnowing = Math.floor(conditionId / 100) === 6;
+    
+    // Temperature categories
+    const isExtremeCold = feelsLike < TEMP_FREEZING;
+    const isCold = feelsLike >= TEMP_FREEZING && feelsLike < TEMP_COLD;
+    const isCool = feelsLike >= TEMP_COLD && feelsLike < TEMP_COOL;
+    const isMild = feelsLike >= TEMP_MILD_LOW && feelsLike <= TEMP_MILD_HIGH;
+    const isWarm = feelsLike > TEMP_MILD_HIGH && feelsLike <= TEMP_WARM;
+    const isHot = feelsLike > TEMP_WARM && feelsLike <= TEMP_HOT;
+    const isExtremeHot = feelsLike > TEMP_HOT;
+    
+    // Wind categories
+    const isCalm = windSpeedMph < WIND_CALM_MPH;
+    const isBreezy = windSpeedMph >= WIND_CALM_MPH && windSpeedMph < WIND_BREEZY_MPH;
+    const isWindy = windSpeedMph >= WIND_BREEZY_MPH && windSpeedMph < WIND_WINDY_MPH;
+    const isVeryWindy = windSpeedMph >= WIND_WINDY_MPH;
 
-    // Check POOR conditions first (using Fahrenheit and mph)
-    if (isPrecipitating && !isLightPrecipitation) {
-        regime = 'POOR';
-    } else if (feelsLike < TEMP_FREEZING || feelsLike > TEMP_HOT || windSpeedMph > WIND_WINDY_MPH || visibility < VISIBILITY_POOR) {
-        regime = 'POOR';
-    } else if (!isPrecipitating && feelsLike >= TEMP_MILD_LOW && feelsLike <= TEMP_MILD_HIGH && windSpeedMph < WIND_CALM_MPH && (conditionId === 800 || conditionId === 801)) {
-        regime = 'PERFECT'; // Check PERFECT conditions
-    } else if (!isPrecipitating && feelsLike >= TEMP_COOL && feelsLike <= TEMP_WARM && windSpeedMph < WIND_BREEZY_MPH) {
-         regime = 'GOOD'; // Check GOOD conditions
-    } else if (isLightPrecipitation && feelsLike > TEMP_COLD) {
-         regime = 'NEUTRAL'; // Light precipitation if not cold is neutral
-    }
-
-    // --- Determine Place Leaning ---
+    // --- Determine Place Characteristics ---
     const placeTypes = place.types || [];
-    let leaning: 'INDOOR' | 'OUTDOOR' | 'MIXED' = 'MIXED'; // Default to mixed
-    if (placeTypes.some(t => INDOOR_HEAVY_TYPES.has(t))) {
-        leaning = 'INDOOR';
-    }
-    // Check outdoor *after* indoor
-    if (placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t)) && leaning !== 'INDOOR') {
-        leaning = 'OUTDOOR';
-    }
-
-    // --- Get Optional Details ---
-    // Use type assertion assuming details might be merged onto the place object
+    const placeName = place.displayName?.text || 'Unknown Place';
     const hasOutdoorSeating = (place as any).outdoorSeating === true;
-    const lacksOutdoorSeating = (place as any).outdoorSeating === false;
-
-
-    // --- Apply Score Modifiers ---
-    const modifier = (points: number) => score = score + points;
-
-    switch (regime) {
-        case 'PERFECT':
-            if (leaning === 'OUTDOOR') modifier(35);
-            if (leaning === 'MIXED') modifier(20);
-            if (leaning === 'INDOOR') modifier(-20); // Penalize indoor on perfect days
-            if (hasOutdoorSeating) modifier(15);
-            if (conditionId === 800) modifier(5); // Clear sky bonus
-            break;
-
-        case 'GOOD':
-            if (leaning === 'OUTDOOR') modifier(20);
-            if (leaning === 'MIXED') modifier(10);
-            if (leaning === 'INDOOR') modifier(-5); // Slight penalty for indoor
-            if (hasOutdoorSeating) modifier(10);
-            break;
-
-        case 'POOR':
-            if (leaning === 'OUTDOOR') modifier(-40);
-            if (leaning === 'MIXED') modifier(-25);
-            if (hasOutdoorSeating) modifier(-20);
-            if (leaning === 'INDOOR') modifier(35);
-
-            // Extra penalties for specific POOR conditions
-            if (isPrecipitating && !isLightPrecipitation) modifier(-10); // Heavy precip
-            if (windSpeedMph > WIND_WINDY_MPH) modifier(-10); // Very windy
-            if (feelsLike < TEMP_FREEZING || feelsLike > TEMP_HOT) modifier(-10); // Extreme temps
-            if (visibility < VISIBILITY_POOR) modifier(-10); // Low visibility
-            break;
-
-        case 'NEUTRAL':
-            if (leaning === 'OUTDOOR') modifier(5);
-            if (leaning === 'MIXED') modifier(5);
-            if (leaning === 'INDOOR') modifier(5);
-            if (hasOutdoorSeating) modifier(5);
-            if (clouds > CLOUDS_OVERCAST) modifier(-5); // Penalize heavy overcast
-            // Penalize if humid and warm (using F thresholds)
-             if (humidity > HUMIDITY_HIGH && feelsLike > TEMP_WARM) modifier(-5);
-            break;
+    
+    // More granular place categorization
+    const isStrictlyIndoor = placeTypes.some(t => INDOOR_HEAVY_TYPES.has(t)) && 
+                             !placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t));
+    const isStrictlyOutdoor = placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t)) && 
+                              !placeTypes.some(t => INDOOR_HEAVY_TYPES.has(t));
+    const isMixedVenue = !isStrictlyIndoor && !isStrictlyOutdoor;
+    
+    const isFoodDrink = placeTypes.some(t => ['restaurant', 'cafe', 'bar', 'bakery', 'food_court', 'meal_takeaway'].includes(t));
+    const isActiveOutdoor = placeTypes.some(t => ['hiking_area', 'playground', 'golf_course', 'stadium', 'amusement_park'].includes(t));
+    const isRelaxedOutdoor = placeTypes.some(t => ['park', 'garden', 'plaza', 'picnic_ground', 'beach'].includes(t));
+    const isNightlife = placeTypes.some(t => ['bar', 'night_club', 'casino'].includes(t));
+    const isConvenience = placeTypes.some(t => ['convenience_store', 'supermarket', 'liquor_store'].includes(t));
+    const isWeatherRefuge = placeTypes.some(t => WEATHER_REFUGE_TYPES.has(t));
+    const isLateNightFriendly = placeTypes.some(t => LATE_NIGHT_FRIENDLY.has(t));
+    
+    // --- Apply Scoring Logic ---
+    
+    // 1. Weather-Activity Match Bonuses
+    if (isPrecipitating) {
+        if (isStrictlyIndoor || isWeatherRefuge) {
+            adjustScore(25, `Indoor venue during ${isHeavyPrecip ? 'heavy' : 'light'} precipitation`);
+            if (isHeavyPrecip) adjustScore(10, 'Extra bonus for heavy precipitation refuge');
+            if (isThunderstorm) adjustScore(5, 'Safe from thunderstorm');
+        } else if (isStrictlyOutdoor) {
+            adjustScore(-30, `Outdoor venue during precipitation`);
+            if (isHeavyPrecip) adjustScore(-15, 'Heavy precipitation penalty');
+            if (isThunderstorm) adjustScore(-10, 'Thunderstorm danger');
+        } else if (isFoodDrink && !hasOutdoorSeating) {
+            adjustScore(15, 'Indoor dining during rain');
+        } else if (hasOutdoorSeating && isMixedVenue) {
+            adjustScore(-10, 'Outdoor seating unusable in rain');
+        }
+    } else {
+        // No precipitation scenarios
+        if (isMild && isCalm && !isNightTime) {
+            // Perfect outdoor weather
+            if (isStrictlyOutdoor) adjustScore(30, 'Outdoor venue in perfect weather');
+            if (hasOutdoorSeating) adjustScore(20, 'Outdoor seating in perfect weather');
+            if (isRelaxedOutdoor) adjustScore(10, 'Park/garden in ideal conditions');
+            if (isStrictlyIndoor && !placeTypes.some(t => ['museum', 'art_gallery'].includes(t))) {
+                adjustScore(-10, 'Missing out on perfect weather');
+            }
+        } else if ((isCool || isWarm) && !isVeryWindy && !isNightTime) {
+            // Good outdoor weather
+            if (isStrictlyOutdoor) adjustScore(20, 'Outdoor venue in good weather');
+            if (hasOutdoorSeating) adjustScore(15, 'Outdoor seating available');
+            if (isActiveOutdoor && isCool) adjustScore(10, 'Cool weather ideal for active outdoor');
+        } else if (conditionId === 800 && !isNightTime) {
+            // Clear sky bonus
+            if (isStrictlyOutdoor) adjustScore(5, 'Clear sky bonus');
+            if (placeTypes.includes('beach') || placeTypes.includes('pool')) {
+                adjustScore(10, 'Beach/pool on clear day');
+            }
+        }
     }
-
-    // --- Apply Time-Based Score Modifiers ---
+    
+    // 2. Temperature-based adjustments
+    if (isExtremeCold || isExtremeHot) {
+        if (isStrictlyIndoor || isWeatherRefuge) {
+            adjustScore(20, `Indoor refuge from extreme ${isExtremeCold ? 'cold' : 'heat'}`);
+        }
+        if (isStrictlyOutdoor) {
+            adjustScore(-25, `Outdoor in extreme ${isExtremeCold ? 'cold' : 'heat'}`);
+        }
+        if (hasOutdoorSeating) {
+            adjustScore(-15, 'Outdoor seating in extreme temperature');
+        }
+    } else if (isHot) {
+        if (placeTypes.includes('ice_cream_shop')) adjustScore(15, 'Ice cream on hot day!');
+        if (placeTypes.includes('swimming_pool') || placeTypes.includes('beach')) {
+            adjustScore(20, 'Water activity in hot weather');
+        }
+        if (isActiveOutdoor) adjustScore(-15, 'Too hot for strenuous activity');
+        if (placeTypes.includes('shopping_mall') || placeTypes.includes('movie_theater')) {
+            adjustScore(10, 'Air conditioning refuge');
+        }
+    } else if (isCold) {
+        if (placeTypes.includes('cafe') || placeTypes.includes('bakery')) {
+            adjustScore(10, 'Warm drinks/food in cold weather');
+        }
+        if (placeTypes.includes('spa')) adjustScore(15, 'Spa in cold weather');
+        if (isRelaxedOutdoor) adjustScore(-10, 'Outdoor relaxation too cold');
+        if (isActiveOutdoor && !isSnowing) adjustScore(5, 'Activity keeps you warm');
+    }
+    
+    // 3. Wind adjustments
+    if (isVeryWindy) {
+        if (isStrictlyOutdoor) adjustScore(-20, 'Very windy outdoor conditions');
+        if (hasOutdoorSeating) adjustScore(-15, 'Outdoor seating in high wind');
+        if (isStrictlyIndoor) adjustScore(10, 'Sheltered from wind');
+        if (placeTypes.includes('golf_course')) adjustScore(-10, 'Golf in high wind');
+    } else if (isWindy) {
+        if (placeTypes.includes('beach')) adjustScore(-10, 'Beach in windy conditions');
+        if (hasOutdoorSeating) adjustScore(-5, 'Outdoor seating less pleasant');
+    }
+    
+    // 4. Visibility adjustments
+    if (visibility < VISIBILITY_POOR) {
+        if (placeTypes.includes('tourist_attraction') || placeTypes.includes('viewpoint')) {
+            adjustScore(-20, 'Poor visibility for sightseeing');
+        }
+        if (isStrictlyIndoor) adjustScore(5, 'Visibility irrelevant indoors');
+        if (placeTypes.includes('hiking_area')) adjustScore(-15, 'Dangerous hiking conditions');
+    }
+    
+    // 5. Time-based adjustments (more nuanced)
     if (isLateNight) {
-        // Penalize types typically closed late
-        if (placeTypes.some(t => ['museum', 'library', 'shopping_mall', 'art_gallery', 'zoo', 'amusement_park', 'park', 'hiking_area', 'playground', 'golf_course', 'stadium', 'performing_arts_theater', 'department_store', 'clothing_store', 'book_store', 'spa', 'gym'].includes(t))) {
-             modifier(-35); // Heavier penalty
+        if (isLateNightFriendly) {
+            adjustScore(15, 'Venue suited for late night');
+            if (isNightlife) adjustScore(10, 'Peak nightlife hours');
+        } else if (placeTypes.some(t => ['museum', 'library', 'zoo', 'park', 'playground', 
+                                        'golf_course', 'hiking_area', 'garden'].includes(t))) {
+            adjustScore(-40, 'Definitely closed at this hour');
+        } else if (isFoodDrink && !isNightlife) {
+            adjustScore(-15, 'Most restaurants closing/closed');
+        } else {
+            adjustScore(-20, 'Likely closed late night');
         }
-        // Slightly penalize generic restaurants/cafes unless explicitly late-night types
-        if (placeTypes.some(t => ['restaurant', 'cafe', 'bakery'].includes(t)) && !placeTypes.some(t => ['bar', 'night_club', 'casino'].includes(t))) {
-            modifier(-15);
+    } else if (isEarlyMorning) {
+        if (placeTypes.includes('cafe') || placeTypes.includes('bakery')) {
+            adjustScore(10, 'Morning coffee/breakfast spot');
         }
-        // Boost types potentially relevant late?
-         if (placeTypes.some(t => ['bar', 'night_club', 'casino', 'convenience_store'].includes(t))) {
-             modifier(10); // Stronger boost for late-night options
-         }
-    } else if (isNightTime) { // Penalize outdoor slightly if it's night but not "late night"
-        if (leaning === 'OUTDOOR') modifier(-10);
+        if (isNightlife) adjustScore(-25, 'Closed after late night');
+        if (placeTypes.includes('park') || placeTypes.includes('hiking_area')) {
+            adjustScore(5, 'Morning outdoor activity');
+        }
+    } else if (isEvening) {
+        if (isFoodDrink || isNightlife) adjustScore(5, 'Peak dining/entertainment time');
+        if (isActiveOutdoor && isNightTime) adjustScore(-15, 'Too dark for outdoor activity');
     }
-
-    // --- Clamp Score ---
-    score = Math.max(0, Math.min(SUITABILITY_SCORE_SCALE, Math.round(score)));
-
+    
+    // 6. Special condition bonuses
+    if (isSnowing) {
+        if (placeTypes.includes('ski_resort') || placeTypes.includes('skating_rink')) {
+            adjustScore(25, 'Perfect for winter sports!');
+        }
+        if (placeTypes.includes('cafe') || placeTypes.includes('library')) {
+            adjustScore(10, 'Cozy indoor spot during snow');
+        }
+    }
+    
+    if (clouds > CLOUDS_OVERCAST && !isPrecipitating) {
+        if (placeTypes.includes('museum') || placeTypes.includes('movie_theater') || 
+            placeTypes.includes('shopping_mall')) {
+            adjustScore(5, 'Indoor activity on cloudy day');
+        }
+    }
+    
+    // 7. Humidity adjustment
+    if (humidity > HUMIDITY_HIGH && feelsLike > TEMP_WARM) {
+        if (isStrictlyIndoor && !placeTypes.includes('gym')) {
+            adjustScore(5, 'Escape from humid conditions');
+        }
+        if (isActiveOutdoor) adjustScore(-10, 'Strenuous activity in humidity');
+        if (placeTypes.includes('swimming_pool') || placeTypes.includes('beach')) {
+            adjustScore(5, 'Water activity in humidity');
+        }
+    }
+    
+    // 8. Combined condition penalties
+    if (isPrecipitating && isVeryWindy) {
+        if (isStrictlyOutdoor) adjustScore(-10, 'Storm conditions');
+        if (isWeatherRefuge) adjustScore(10, 'Safe haven from storm');
+    }
+    
+    // --- Ensure score stays within bounds ---
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    
+    // Debug logging
+    if (debug) {
+        console.log(`[Scoring] ${placeName}`);
+        console.log(`  Weather: ${weatherMain}, ${feelsLike.toFixed(1)}°F feels like, ${windSpeedMph.toFixed(1)}mph wind`);
+        console.log(`  Time: ${isLateNight ? 'Late Night' : isEarlyMorning ? 'Early Morning' : isEvening ? 'Evening' : 'Day'}`);
+        console.log(`  Place Type: ${isStrictlyIndoor ? 'Indoor' : isStrictlyOutdoor ? 'Outdoor' : 'Mixed'}`);
+        console.log(`  Base Score: 70`);
+        scoreAdjustments.forEach(adj => console.log(`  ${adj}`));
+        console.log(`  Final Score: ${score}`);
+    }
+    
     return score;
 }
+
+// Export the constants for use in other files if needed
+export const WEATHER_THRESHOLDS = {
+    TEMP_FREEZING,
+    TEMP_COLD,
+    TEMP_COOL,
+    TEMP_MILD_LOW,
+    TEMP_MILD_HIGH,
+    TEMP_WARM,
+    TEMP_HOT,
+    WIND_CALM_MPH,
+    WIND_BREEZY_MPH,
+    WIND_WINDY_MPH,
+    CLOUDS_OVERCAST,
+    VISIBILITY_POOR,
+    HUMIDITY_HIGH
+};

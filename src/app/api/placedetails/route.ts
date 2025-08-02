@@ -17,32 +17,90 @@ export async function GET(request: NextRequest) {
   }
 
   // --- Place Details (New) API Configuration ---
-  // Note: Place IDs are URL-safe, but encoding might be safer if unsure.
   const googleApiUrl = `https://places.googleapis.com/v1/places/${placeId}`;
 
-  // Define the specific fields we want for detail view / scoring
-  // Check SKU/costs! 'outdoorSeating' might be in a higher tier.
-  const fieldMask = 'id,displayName,types,location,rating,userRatingCount,formattedAddress,outdoorSeating,currentOpeningHours.openNow';
+  // Enhanced field mask for detailed view
+  // Note: Photos and reviews require additional API calls in the new Places API
+  const fieldMask = [
+    // Basic Information
+    'id',
+    'displayName',
+    'types',
+    'location',
+    'rating',
+    'userRatingCount',
+    'formattedAddress',
+    'businessStatus',
+    'priceLevel',
+    
+    // Contact Information
+    'internationalPhoneNumber',
+    'nationalPhoneNumber',
+    'websiteUri',
+    'googleMapsUri',
+    
+    // Opening Hours
+    'currentOpeningHours',
+    'regularOpeningHours',
+    
+    // Features
+    'outdoorSeating',
+    'delivery',
+    'dineIn',
+    'curbsidePickup',
+    'reservable',
+    'servesBreakfast',
+    'servesLunch',
+    'servesDinner',
+    'servesBeer',
+    'servesWine',
+    'servesVegetarianFood',
+    'takeout',
+    
+    // Accessibility
+    'accessibilityOptions',
+    
+    // Payment
+    'paymentOptions',
+    
+    // Photos (returns photo resource names, not actual images)
+    'photos',
+    
+    // Reviews
+    'reviews',
+    
+    // Additional Info
+    'userRatingCount',
+    'utcOffsetMinutes',
+    'adrFormatAddress',
+    'editorialSummary',
+    'primaryType',
+    'primaryTypeDisplayName',
+    'subDestinations',
+    'parkingOptions',
+    'plusCode',
+    'viewport'
+  ].join(',');
+  
   // --- End Configuration ---
 
-  console.log(`Calling NEW Google Place Details API for placeId '${placeId}'`);
+  console.log(`Calling NEW Google Place Details API for placeId '${placeId}' with enhanced fields`);
 
   try {
     // Make the GET request to the NEW Place Details API endpoint
-    // Field mask and API key are passed as headers
     const response = await fetch(googleApiUrl, {
-      method: 'GET', // Place Details uses GET
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey, // Pass API key in header
-        'X-Goog-FieldMask': fieldMask, // Specify desired fields via header
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': fieldMask,
       },
-      // next: { revalidate: 86400 } // Optional: Cache details for a day (place details change less often)
+      next: { revalidate: 86400 } // Cache details for a day
     });
 
-    const data = await response.json(); // Parse JSON response
+    const data = await response.json();
 
-    // Check for errors reported by the Google API
+    // Check for errors
     if (!response.ok || data.error) {
       console.error(`Google Place Details API error for placeId ${placeId}:`, data);
       const errorMessage = data?.error?.message || `Google Place Details API error: ${response.status}`;
@@ -50,12 +108,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: errorMessage, details: errorDetails }, { status: response.status });
     }
 
-    // Return the detailed place data
-    // The response is the Place object itself, not nested under 'places'
+    // Process photos to include proper URLs
+    if (data.photos && Array.isArray(data.photos)) {
+      // Limit to first 10 photos to avoid too much data
+      data.photos = data.photos.slice(0, 10);
+    }
+
+    // Process reviews if available
+    if (data.reviews && Array.isArray(data.reviews)) {
+      // Sort by most recent and limit to 10
+      data.reviews = data.reviews
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.publishTime || 0).getTime();
+          const dateB = new Date(b.publishTime || 0).getTime();
+          return dateB - dateA;
+        })
+        .slice(0, 10);
+    }
+
+    // Return the enhanced place data
     return NextResponse.json(data);
 
   } catch (error: any) {
     console.error(`Error fetching place details for placeId ${placeId}:`, error);
-    return NextResponse.json({ error: 'Internal server error while fetching place details', details: error.message }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error while fetching place details', 
+      details: error.message 
+    }, { status: 500 });
   }
 }
