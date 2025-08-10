@@ -536,28 +536,40 @@ export default function PreferencesPanel({ isOpen, onClose, isDarkTheme = false 
           )}
         </div>
 
-        {/* Footer Actions */}
+        {/* Footer Actions - CHANGED SECTION */}
         <div className={`flex items-center justify-between p-6 border-t ${borderClasses}`}>
           <div className="flex gap-2">
             <button
               onClick={() => setImportExportModal('export')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all transform hover:scale-105 ${
+                isDarkTheme 
+                  ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-lg' 
+                  : 'bg-purple-500 hover:bg-purple-600 text-white shadow-lg'
+              }`}
             >
               <Download className="w-4 h-4" />
-              <span className="text-sm font-medium">Export</span>
+              <span className="text-sm font-semibold">Export</span>
             </button>
             <button
               onClick={() => setImportExportModal('import')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all transform hover:scale-105 ${
+                isDarkTheme 
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg' 
+                  : 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg'
+              }`}
             >
               <Upload className="w-4 h-4" />
-              <span className="text-sm font-medium">Import</span>
+              <span className="text-sm font-semibold">Import</span>
             </button>
           </div>
           
           <button
             onClick={resetPreferences}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              isDarkTheme
+                ? 'text-red-400 hover:bg-red-500/20'
+                : 'text-red-600 hover:bg-red-500/10'
+            }`}
           >
             <RotateCcw className="w-4 h-4" />
             <span className="text-sm font-medium">Reset All</span>
