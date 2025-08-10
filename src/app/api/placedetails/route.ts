@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
   // Enhanced field mask for detailed view
   // Note: Photos and reviews require additional API calls in the new Places API
-  const fieldMask = [
+const fieldMask = [
     // Basic Information
     'id',
     'displayName',
@@ -39,9 +39,13 @@ export async function GET(request: NextRequest) {
     'websiteUri',
     'googleMapsUri',
     
-    // Opening Hours
-    'currentOpeningHours',
-    'regularOpeningHours',
+    // Opening Hours - Request full structure
+    'currentOpeningHours.openNow',
+    'currentOpeningHours.periods',
+    'currentOpeningHours.weekdayDescriptions',
+    'regularOpeningHours.openNow',
+    'regularOpeningHours.periods',
+    'regularOpeningHours.weekdayDescriptions',
     
     // Features
     'outdoorSeating',

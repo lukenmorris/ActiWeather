@@ -14,10 +14,12 @@ import { getCategoryForPlace, ActivityCategory } from '@/lib/activityMapper';
 
 // Import Lucide icons
 import { 
-  MapPin, Star, Clock, Users, DollarSign, Phone, Globe, 
-  Navigation, ChevronRight, Sparkles, TrendingUp, Award,
+  MapPin, Star, Clock, Phone, Globe, Navigation, 
+  ChevronRight, Sparkles, TrendingUp, Award, Heart,
   Coffee, Utensils, ShoppingBag, TreePine, Gamepad2, 
-  Palette, Music, Dumbbell, Book, Car, Loader2
+  Palette, Music, Dumbbell, Book, Car, Loader2,
+  Zap, Shield, Flame, Snowflake, Sun, Moon, CloudRain,
+  ExternalLink, Info, DollarSign, Users, Bookmark
 } from 'lucide-react';
 
 // Import the ActivityDetailModal
@@ -49,172 +51,348 @@ type PlaceDetail = {
     internationalPhoneNumber?: string;
 };
 
-// Category icons mapping
-const categoryIcons: Record<string, React.ComponentType<any>> = {
-  'Food & Drink': Utensils,
-  'Shopping': ShoppingBag,
-  'Outdoor Active': TreePine,
-  'Outdoor Relax': Coffee,
-  'Indoor Active': Gamepad2,
-  'Indoor Relax': Book,
-  'Culture & Entertainment': Palette,
-  'Other Recommendations': Sparkles
-};
-
-// Get category color classes
-const getCategoryColorClasses = (category: string, isDark: boolean): string => {
-  const colorMap: Record<string, { light: string; dark: string }> = {
-    'Food & Drink': { 
-      light: 'bg-orange-100 text-orange-800 border-orange-200', 
-      dark: 'bg-orange-900/30 text-orange-300 border-orange-800/50' 
-    },
-    'Shopping': { 
-      light: 'bg-purple-100 text-purple-800 border-purple-200', 
-      dark: 'bg-purple-900/30 text-purple-300 border-purple-800/50' 
-    },
-    'Outdoor Active': { 
-      light: 'bg-green-100 text-green-800 border-green-200', 
-      dark: 'bg-green-900/30 text-green-300 border-green-800/50' 
-    },
-    'Outdoor Relax': { 
-      light: 'bg-teal-100 text-teal-800 border-teal-200', 
-      dark: 'bg-teal-900/30 text-teal-300 border-teal-800/50' 
-    },
-    'Indoor Active': { 
-      light: 'bg-red-100 text-red-800 border-red-200', 
-      dark: 'bg-red-900/30 text-red-300 border-red-800/50' 
-    },
-    'Indoor Relax': { 
-      light: 'bg-blue-100 text-blue-800 border-blue-200', 
-      dark: 'bg-blue-900/30 text-blue-300 border-blue-800/50' 
-    },
-    'Culture & Entertainment': { 
-      light: 'bg-indigo-100 text-indigo-800 border-indigo-200', 
-      dark: 'bg-indigo-900/30 text-indigo-300 border-indigo-800/50' 
-    },
-    'Other Recommendations': { 
-      light: 'bg-gray-100 text-gray-800 border-gray-200', 
-      dark: 'bg-gray-900/30 text-gray-300 border-gray-800/50' 
-    }
-  };
-
-  const colors = colorMap[category] || colorMap['Other Recommendations'];
-  return isDark ? colors.dark : colors.light;
-};
-
-// Helper to format price level
-const formatPriceLevel = (priceLevel?: string): { text: string; count: number } => {
-  switch (priceLevel) {
-    case 'PRICE_LEVEL_FREE': return { text: 'Free', count: 0 };
-    case 'PRICE_LEVEL_INEXPENSIVE': return { text: '$', count: 1 };
-    case 'PRICE_LEVEL_MODERATE': return { text: '$$', count: 2 };
-    case 'PRICE_LEVEL_EXPENSIVE': return { text: '$$$', count: 3 };
-    case 'PRICE_LEVEL_VERY_EXPENSIVE': return { text: '$$$$', count: 4 };
-    default: return { text: '', count: 0 };
+// Category icons and colors
+const categoryConfig: Record<string, { 
+  icon: React.ComponentType<any>; 
+  gradient: string;
+  darkGradient: string;
+  accentColor: string;
+}> = {
+  'Food & Drink': { 
+    icon: Utensils, 
+    gradient: 'from-orange-400 to-red-500',
+    darkGradient: 'from-orange-600 to-red-700',
+    accentColor: 'orange'
+  },
+  'Shopping': { 
+    icon: ShoppingBag, 
+    gradient: 'from-purple-400 to-pink-500',
+    darkGradient: 'from-purple-600 to-pink-700',
+    accentColor: 'purple'
+  },
+  'Outdoor Active': { 
+    icon: TreePine, 
+    gradient: 'from-green-400 to-emerald-500',
+    darkGradient: 'from-green-600 to-emerald-700',
+    accentColor: 'green'
+  },
+  'Outdoor Relax': { 
+    icon: Coffee, 
+    gradient: 'from-teal-400 to-cyan-500',
+    darkGradient: 'from-teal-600 to-cyan-700',
+    accentColor: 'teal'
+  },
+  'Indoor Active': { 
+    icon: Gamepad2, 
+    gradient: 'from-red-400 to-pink-500',
+    darkGradient: 'from-red-600 to-pink-700',
+    accentColor: 'red'
+  },
+  'Indoor Relax': { 
+    icon: Book, 
+    gradient: 'from-blue-400 to-indigo-500',
+    darkGradient: 'from-blue-600 to-indigo-700',
+    accentColor: 'blue'
+  },
+  'Culture & Entertainment': { 
+    icon: Palette, 
+    gradient: 'from-indigo-400 to-purple-500',
+    darkGradient: 'from-indigo-600 to-purple-700',
+    accentColor: 'indigo'
+  },
+  'Other Recommendations': { 
+    icon: Sparkles, 
+    gradient: 'from-gray-400 to-gray-500',
+    darkGradient: 'from-gray-600 to-gray-700',
+    accentColor: 'gray'
   }
 };
 
-// Enhanced Rating Stars Component
-const RatingStars: React.FC<{ rating?: number; count?: number; size?: 'sm' | 'md' }> = ({ 
-  rating, 
-  count, 
-  size = 'sm' 
-}) => {
-    if (typeof rating !== 'number' || rating <= 0) {
-        return <span className="text-xs text-gray-500 opacity-70">No rating</span>;
+// Helper to format price level
+const PriceIndicator: React.FC<{ priceLevel?: string }> = ({ priceLevel }) => {
+  const getCount = () => {
+    switch (priceLevel) {
+      case 'PRICE_LEVEL_INEXPENSIVE': return 1;
+      case 'PRICE_LEVEL_MODERATE': return 2;
+      case 'PRICE_LEVEL_EXPENSIVE': return 3;
+      case 'PRICE_LEVEL_VERY_EXPENSIVE': return 4;
+      default: return 0;
     }
-    
-    const starSize = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4';
-    const textSize = size === 'sm' ? 'text-xs' : 'text-sm';
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
-    
-    return (
-      <div className="flex items-center gap-1">
-        <div className="flex">
-          {[...Array(5)].map((_, i) => (
-            <Star
-              key={i}
-              className={`${starSize} ${
-                i < fullStars
-                  ? 'fill-yellow-400 text-yellow-400'
-                  : i === fullStars && hasHalfStar
-                  ? 'fill-yellow-400/50 text-yellow-400'
-                  : 'text-gray-300/50'
-              }`}
-            />
-          ))}
-        </div>
-        <span className={`${textSize} opacity-80 ml-1`}>
-          {rating.toFixed(1)} {count ? `(${count.toLocaleString()})` : ''}
-        </span>
-      </div>
-    );
+  };
+  
+  const count = getCount();
+  if (count === 0) return null;
+  
+  return (
+    <div className="flex items-center">
+      {[...Array(4)].map((_, i) => (
+        <DollarSign
+          key={i}
+          className={`w-3 h-3 ${
+            i < count ? 'text-green-400' : 'text-gray-500/30'
+          }`}
+        />
+      ))}
+    </div>
+  );
 };
 
-// Score indicator component
-const ScoreIndicator: React.FC<{ score: number }> = ({ score }) => {
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-500';
-    if (score >= 60) return 'text-yellow-500';
-    if (score >= 40) return 'text-orange-500';
-    return 'text-red-500';
-  };
-
-  const getScoreLabel = (score: number) => {
-    if (score >= 80) return 'Perfect Match';
-    if (score >= 60) return 'Good Match';
-    if (score >= 40) return 'Fair Match';
-    return 'Poor Match';
-  };
-
+// Enhanced Rating Component
+const RatingDisplay: React.FC<{ rating?: number; count?: number }> = ({ rating, count }) => {
+  if (!rating) return null;
+  
+  const fullStars = Math.floor(rating);
+  const hasHalfStar = rating % 1 >= 0.5;
+  
   return (
     <div className="flex items-center gap-2">
-      <div className={`text-2xl font-bold ${getScoreColor(score)}`}>
-        {score}
+      <div className="flex items-center">
+        {[...Array(5)].map((_, i) => (
+          <Star
+            key={i}
+            className={`w-4 h-4 ${
+              i < fullStars
+                ? 'fill-yellow-400 text-yellow-400'
+                : i === fullStars && hasHalfStar
+                ? 'fill-yellow-400/50 text-yellow-400'
+                : 'text-gray-400/30'
+            }`}
+          />
+        ))}
       </div>
-      <div className="text-xs opacity-70">
-        <div className="font-medium">{getScoreLabel(score)}</div>
-        <div>Match Score</div>
+      <span className="text-sm font-medium">{rating.toFixed(1)}</span>
+      {count && count > 0 && (
+        <span className="text-xs opacity-60">({count.toLocaleString()})</span>
+      )}
+    </div>
+  );
+};
+
+// Enhanced Match Score Badge with numeric display
+const MatchScoreBadge: React.FC<{ score: number; detailed?: boolean }> = ({ score, detailed = false }) => {
+  const getScoreConfig = () => {
+    if (score >= 85) return { 
+      label: 'Perfect', 
+      icon: Flame, 
+      gradient: 'from-orange-400 to-red-500',
+      bgColor: 'bg-orange-500/20',
+      textColor: 'text-orange-400'
+    };
+    if (score >= 75) return { 
+      label: 'Excellent', 
+      icon: Zap, 
+      gradient: 'from-yellow-400 to-orange-400',
+      bgColor: 'bg-yellow-500/20',
+      textColor: 'text-yellow-400'
+    };
+    if (score >= 65) return { 
+      label: 'Great', 
+      icon: TrendingUp, 
+      gradient: 'from-green-400 to-emerald-500',
+      bgColor: 'bg-green-500/20',
+      textColor: 'text-green-400'
+    };
+    if (score >= 55) return { 
+      label: 'Good', 
+      icon: Shield, 
+      gradient: 'from-blue-400 to-cyan-500',
+      bgColor: 'bg-blue-500/20',
+      textColor: 'text-blue-400'
+    };
+    return { 
+      label: 'Fair', 
+      icon: Info, 
+      gradient: 'from-gray-400 to-gray-500',
+      bgColor: 'bg-gray-500/20',
+      textColor: 'text-gray-400'
+    };
+  };
+  
+  const config = getScoreConfig();
+  const Icon = config.icon;
+  
+  return (
+    <div className="flex flex-col items-end gap-1">
+      {/* Numeric Score */}
+      <div className={`text-2xl font-bold ${config.textColor}`}>
+        {score}
+        <span className="text-xs opacity-60">/100</span>
+      </div>
+      {/* Label Badge */}
+      <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full ${config.bgColor} backdrop-blur-sm`}>
+        <Icon className="w-3.5 h-3.5" />
+        <span className="text-xs font-semibold">{config.label}</span>
+      </div>
+      {detailed && (
+        <div className={`mt-1 h-1 w-20 rounded-full bg-gray-700 overflow-hidden`}>
+          <div 
+            className={`h-full bg-gradient-to-r ${config.gradient} transition-all duration-500`}
+            style={{ width: `${score}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Loading state
+const LoadingState: React.FC = () => (
+  <div className="flex flex-col items-center justify-center py-20">
+    <div className="relative">
+      <div className="w-20 h-20 rounded-full border-4 border-white/20 border-t-white/60 animate-spin" />
+      <Loader2 className="absolute inset-0 m-auto w-8 h-8 animate-pulse" />
+    </div>
+    <p className="mt-6 text-lg font-medium">Finding perfect activities...</p>
+    <p className="mt-2 text-sm opacity-60">Analyzing weather compatibility</p>
+  </div>
+);
+
+// Empty state
+const EmptyState: React.FC<{ reason?: string }> = ({ reason }) => (
+  <div className="flex flex-col items-center justify-center py-20">
+    <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mb-6">
+      <MapPin className="w-10 h-10 opacity-50" />
+    </div>
+    <p className="text-lg font-medium mb-2">No activities available</p>
+    <p className="text-sm opacity-60 max-w-md text-center">
+      {reason || "We couldn't find any suitable activities nearby. Try adjusting your location or check back later."}
+    </p>
+  </div>
+);
+
+// Place Card Component
+const PlaceCard: React.FC<{
+  place: GooglePlace & { distance: number; suitabilityScore: number; isTopPick?: boolean };
+  details?: PlaceDetail;
+  isDark: boolean;
+  index: number;
+  category: string;
+  onClick: () => void;
+}> = ({ place, details, isDark, index, category, onClick }) => {
+  const [isLiked, setIsLiked] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const config = categoryConfig[category] || categoryConfig['Other Recommendations'];
+  const Icon = config.icon;
+  
+  return (
+    <div
+      className={`group relative cursor-pointer transform transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1`}
+      style={{ animationDelay: `${index * 100}ms` }}
+      onClick={onClick}
+    >
+      {/* Top Pick Badge */}
+      {place.isTopPick && (
+        <div className="absolute -top-3 left-4 z-20">
+          <div className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r ${config.gradient} text-white text-xs font-bold shadow-lg`}>
+            <Sparkles className="w-3.5 h-3.5" />
+            TOP PICK
+          </div>
+        </div>
+      )}
+      
+      {/* Card */}
+      <div className={`relative overflow-hidden rounded-2xl backdrop-blur-xl transition-all duration-500 ${
+        isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-white/40 hover:bg-white/50'
+      } border border-white/20 shadow-xl`}>
+        {/* Gradient Accent Line */}
+        <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${isDark ? config.darkGradient : config.gradient}`} />
+        
+        {/* Content */}
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex-1 pr-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`p-2 rounded-xl bg-gradient-to-br ${config.gradient} text-white shadow-lg`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold line-clamp-1">
+                    {place.displayName?.text || 'Unnamed Place'}
+                  </h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="px-2 py-0.5 text-xs font-medium bg-green-400/20 text-green-400 rounded-full">
+                      Open Now
+                    </span>
+                    <PriceIndicator priceLevel={details?.priceLevel} />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Rating */}
+              <div className="mt-3">
+                <RatingDisplay rating={place.rating} count={place.userRatingCount} />
+              </div>
+              
+              {/* Address */}
+              <div className="flex items-start gap-2 mt-3 text-sm opacity-70">
+                <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span className="line-clamp-1">{place.formattedAddress}</span>
+              </div>
+            </div>
+            
+            {/* Score Display - Enhanced */}
+            <MatchScoreBadge score={place.suitabilityScore} detailed={false} />
+          </div>
+          
+          {/* Stats Row */}
+          <div className="flex items-center justify-between pt-4 border-t border-white/10">
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-1.5">
+                <Car className="w-4 h-4 opacity-60" />
+                <span className="font-medium">{formatDistance(place.distance)}</span>
+              </div>
+              {details?.regularOpeningHours?.weekdayDescriptions && (
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 opacity-60" />
+                  <span className="text-xs opacity-70">View hours</span>
+                </div>
+              )}
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsLiked(!isLiked);
+                }}
+                className={`p-2 rounded-full transition-all ${
+                  isLiked 
+                    ? 'bg-red-500/20 text-red-400' 
+                    : 'hover:bg-white/10'
+                }`}
+              >
+                <Heart className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsBookmarked(!isBookmarked);
+                }}
+                className={`p-2 rounded-full transition-all ${
+                  isBookmarked 
+                    ? 'bg-blue-500/20 text-blue-400' 
+                    : 'hover:bg-white/10'
+                }`}
+              >
+                <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+              </button>
+              <button className="p-2 rounded-full hover:bg-white/10 transition-all">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Hover Gradient Effect */}
+        <div className={`absolute inset-0 bg-gradient-to-br ${config.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500 pointer-events-none`} />
       </div>
     </div>
   );
 };
 
-// Loading skeleton component
-const LoadingSkeleton: React.FC = () => (
-  <div className="space-y-8 animate-pulse">
-    {[...Array(2)].map((_, categoryIndex) => (
-      <div key={`cat-skeleton-${categoryIndex}`}>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 bg-gray-400/20 rounded-lg"></div>
-          <div className="h-6 bg-gray-400/20 rounded-md w-40"></div>
-        </div>
-        <div className="space-y-4">
-          {[...Array(2)].map((_, cardIndex) => (
-            <div key={`card-skeleton-${cardIndex}`} className="relative">
-              <div className="p-6 rounded-2xl border border-gray-400/10 bg-gray-400/5 backdrop-blur-sm">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="space-y-3 flex-1">
-                    <div className="h-6 bg-gray-400/20 rounded w-3/4"></div>
-                    <div className="h-4 bg-gray-400/15 rounded w-full"></div>
-                    <div className="flex gap-4">
-                      <div className="h-4 bg-gray-400/15 rounded w-20"></div>
-                      <div className="h-4 bg-gray-400/15 rounded w-24"></div>
-                    </div>
-                  </div>
-                  <div className="w-20 h-16 bg-gray-400/20 rounded-lg ml-4"></div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    ))}
-  </div>
-);
-
-// The main ActivityList component
+// Main Component
 const ActivityList: React.FC<ActivityListProps> = ({
   places,
   placesLoading,
@@ -225,9 +403,9 @@ const ActivityList: React.FC<ActivityListProps> = ({
   // State management
   const [detailedPlaces, setDetailedPlaces] = useState<Record<string, PlaceDetail>>({});
   const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Theme detection
   const isDarkTheme = weatherData && (
@@ -247,79 +425,43 @@ const ActivityList: React.FC<ActivityListProps> = ({
     setTimeout(() => setSelectedPlaceId(null), 300);
   };
 
-  // Determine which places need details
+  // Fetch details for places
   const placeIdsToFetchDetails = useMemo(() => {
     if (!places || places.length === 0 || !userCoordinates) return [];
-    const MAX_DETAILS_FETCH = 20;
-
-    const placesWithDistance = places
-      .map(place => {
-        let distance = -1;
-        if (place.location && typeof userCoordinates.latitude === 'number' && typeof userCoordinates.longitude === 'number') {
-          distance = calculateDistance(
-            userCoordinates.latitude, userCoordinates.longitude,
-            place.location.latitude, place.location.longitude
-          );
-        }
-        return { ...place, distance };
-      })
-      .filter(place => place.distance >= 0);
-
-    placesWithDistance.sort((a, b) => a.distance - b.distance);
-
-    return placesWithDistance
-      .slice(0, MAX_DETAILS_FETCH)
-      .map(p => p.id)
-      .filter((id): id is string => !!id);
+    return places.slice(0, 20).map(p => p.id).filter((id): id is string => !!id);
   }, [places, userCoordinates]);
 
-  // Fetch details effect
   useEffect(() => {
-    if (placeIdsToFetchDetails.length === 0 || !weatherData) {
-      setDetailedPlaces({});
-      setDetailsLoading(false);
-      return;
-    }
+    if (placeIdsToFetchDetails.length === 0) return;
 
-    const idsToFetchNow = placeIdsToFetchDetails.filter(id => !detailedPlaces[id]);
-    if (idsToFetchNow.length === 0) {
-      if (detailsLoading) setDetailsLoading(false);
-      return;
-    }
+    const idsToFetch = placeIdsToFetchDetails.filter(id => !detailedPlaces[id]);
+    if (idsToFetch.length === 0) return;
 
     setDetailsLoading(true);
-    setDetailsError(null);
-
-    const fetchAllDetails = async () => {
-      const detailPromises = idsToFetchNow.map(id =>
-        fetch(`/api/placedetails?placeId=${id}`).then(async res => {
-          if (!res.ok) {
-            throw new Error(`Details fetch failed for ${id}`);
-          }
-          return res.json();
-        })
+    
+    const fetchDetails = async () => {
+      const promises = idsToFetch.map(id =>
+        fetch(`/api/placedetails?placeId=${id}`).then(res => res.json())
       );
-
-      const settledDetails = await Promise.allSettled(detailPromises);
+      
+      const results = await Promise.allSettled(promises);
       const newDetails: Record<string, PlaceDetail> = {};
-
-      settledDetails.forEach((result, index) => {
-        const placeId = idsToFetchNow[index];
+      
+      results.forEach((result, index) => {
         if (result.status === 'fulfilled' && result.value?.id) {
-          newDetails[placeId] = result.value as PlaceDetail;
+          newDetails[idsToFetch[index]] = result.value;
         }
       });
-
+      
       setDetailedPlaces(prev => ({ ...prev, ...newDetails }));
-    };
-
-    fetchAllDetails().finally(() => {
       setDetailsLoading(false);
-    });
-  }, [placeIdsToFetchDetails, weatherData]);
+    };
+    
+    fetchDetails();
+  }, [placeIdsToFetchDetails]);
 
   // Process and group places
-  const groupedPlaces = useMemo(() => {
+  const { groupedPlaces, categories } = useMemo(() => {
     const groups: Record<string, (GooglePlace & { 
       distance: number; 
       suitabilityScore: number;
@@ -327,14 +469,15 @@ const ActivityList: React.FC<ActivityListProps> = ({
     })[]> = {};
     
     if (!places || places.length === 0 || !userCoordinates || !weatherData) {
-      return groups;
+      return { groupedPlaces: groups, categories: [] };
     }
 
+    // Score and categorize places
     const scoredPlaces = places
       .map(place => {
         const details = detailedPlaces[place.id];
         const enhancedPlace = { ...place, ...(details || {}) };
-
+        
         let distance = -1;
         if (enhancedPlace.location && userCoordinates) {
           distance = calculateDistance(
@@ -342,271 +485,155 @@ const ActivityList: React.FC<ActivityListProps> = ({
             enhancedPlace.location.latitude, enhancedPlace.location.longitude
           );
         }
-
-        const suitabilityScore = calculateWeatherSuitability(enhancedPlace, weatherData);
-        const rating = typeof enhancedPlace.rating === 'number' ? enhancedPlace.rating : 0;
-        const userRatingCount = typeof enhancedPlace.userRatingCount === 'number' ? enhancedPlace.userRatingCount : 0;
         
-        return { ...enhancedPlace, distance, suitabilityScore, rating, userRatingCount };
+        const suitabilityScore = calculateWeatherSuitability(enhancedPlace, weatherData);
+        
+        return { ...enhancedPlace, distance, suitabilityScore };
       })
-      .filter(place => place.distance >= 0);
+      .filter(place => place.distance >= 0 && detailedPlaces[place.id]?.currentOpeningHours?.openNow === true);
 
-    // Filter open places
-    const openPlaces = scoredPlaces.filter(place => {
-      const detailData = detailedPlaces[place.id];
-      return detailData?.currentOpeningHours?.openNow === true;
-    });
-
-    // Sort by score, rating, and distance
-    openPlaces.sort((a, b) => {
-      if (a.suitabilityScore !== b.suitabilityScore) {
-        return b.suitabilityScore - a.suitabilityScore;
-      }
-      if (a.rating !== b.rating) {
-        return b.rating - a.rating;
-      }
-      if (a.userRatingCount !== b.userRatingCount) {
-        return b.userRatingCount - a.userRatingCount;
-      }
-      return a.distance - b.distance;
-    });
-
-    // Mark top picks (highest scoring in each category)
-    const categoryTopScores: Record<string, number> = {};
-    
-    openPlaces.forEach(place => {
+    // Group by category
+    scoredPlaces.forEach(place => {
       const category = getCategoryForPlace(place);
       const categoryName = category ? category.valueOf() : 'Other Recommendations';
-
+      
       if (!groups[categoryName]) {
         groups[categoryName] = [];
       }
-
-      // Mark as top pick if it's the first (highest scoring) in its category
-      const isTopPick = groups[categoryName].length === 0 && place.suitabilityScore >= 70;
       
-      groups[categoryName].push({ ...place, isTopPick });
+      groups[categoryName].push(place);
     });
 
-    return groups;
+    // Sort within each category and mark top picks
+    Object.keys(groups).forEach(category => {
+      groups[category].sort((a, b) => {
+        if (Math.abs(a.suitabilityScore - b.suitabilityScore) > 5) {
+          return b.suitabilityScore - a.suitabilityScore;
+        }
+        return a.distance - b.distance;
+      });
+      
+      // Mark first item as top pick if it has good score
+      if (groups[category][0] && groups[category][0].suitabilityScore >= 70) {
+        groups[category][0].isTopPick = true;
+      }
+    });
+
+    const categoryList = Object.keys(groups);
+    return { groupedPlaces: groups, categories: categoryList };
   }, [places, userCoordinates, detailedPlaces, weatherData]);
 
-  // Render logic
-  let content: React.ReactNode = null;
-  const showLoading = placesLoading || detailsLoading;
+  // Filter by selected category
+  const displayedGroups = selectedCategory 
+    ? { [selectedCategory]: groupedPlaces[selectedCategory] }
+    : groupedPlaces;
 
-  if (showLoading) {
-    content = <LoadingSkeleton />;
-  } else if (placesError) {
-    content = (
-      <div className="text-center py-16">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100/20 mb-4">
-          <MapPin className="w-8 h-8 text-red-400" />
-        </div>
-        <p className="font-medium text-red-400 mb-2">Unable to find activities</p>
-        <p className="text-sm opacity-70">{placesError}</p>
-      </div>
-    );
-  } else if (Object.keys(groupedPlaces).length === 0) {
-    const noResultsReason = !userCoordinates ? 'Waiting for location...' :
-                           !weatherData ? 'Waiting for weather data...' :
-                           places.length === 0 ? 'No places found for the suggested activity types.' :
-                           'No suitable activities are open right now. Try expanding your search radius.';
-    content = (
-      <div className="text-center py-16">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100/20 mb-4">
-          <Clock className="w-8 h-8 opacity-50" />
-        </div>
-        <p className="text-lg font-medium opacity-80 mb-2">No Activities Available</p>
-        <p className="text-sm opacity-60">{noResultsReason}</p>
-      </div>
-    );
-  } else {
-    // Calculate stats
-    const totalPlaces = Object.values(groupedPlaces).flat().length;
-    const avgScore = Math.round(
-      Object.values(groupedPlaces).flat().reduce((sum, p) => sum + p.suitabilityScore, 0) / totalPlaces
-    );
+  // Render
+  if (placesLoading || detailsLoading) {
+    return <LoadingState />;
+  }
 
-    content = (
-      <div className="space-y-8">
-        {/* Summary Stats */}
-        <div className="flex items-center justify-between p-4 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Award className="w-5 h-5 text-yellow-400" />
-              <span className="text-sm font-medium">
-                {totalPlaces} activities found
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-green-400" />
-              <span className="text-sm font-medium">
-                Avg. match: {avgScore}%
-              </span>
-            </div>
-          </div>
-        </div>
+  if (placesError) {
+    return <EmptyState reason={placesError} />;
+  }
 
-        {/* Category Groups */}
-        {Object.entries(groupedPlaces).map(([categoryName, placesInCategory]) => {
-          const CategoryIcon = categoryIcons[categoryName] || Sparkles;
-          
-          return (
-            <div key={categoryName} className="animate-fade-in-up">
-              {/* Category Header */}
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`p-2 rounded-lg ${getCategoryColorClasses(categoryName, isDarkTheme || false)}`}>
-                  <CategoryIcon className="w-5 h-5" />
-                </div>
-                <h3 className="text-xl font-semibold opacity-90">{categoryName}</h3>
-                <span className="text-sm opacity-60">({placesInCategory.length} options)</span>
-              </div>
-
-              {/* Places Grid */}
-              <div className="space-y-4">
-                {placesInCategory.slice(0, 4).map((place, index) => (
-                  <div key={place.id} className="relative">
-                    {/* Top Pick Badge */}
-                    {place.isTopPick && (
-                      <div className="absolute -top-2 left-4 z-10">
-                        <div className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-xs font-semibold rounded-full shadow-lg">
-                          <Sparkles className="w-3 h-3" />
-                          TOP PICK
-                        </div>
-                      </div>
-                    )}
-
-                    <div
-                      className={`
-                        relative p-6 rounded-2xl border backdrop-blur-sm 
-                        ${place.isTopPick ? 'border-yellow-400/30 bg-yellow-400/5' : 'border-white/10 bg-white/5'}
-                        hover:bg-white/10 transition-all duration-300 cursor-pointer
-                        transform hover:-translate-y-1 hover:shadow-xl
-                        animate-fade-in-up
-                      `}
-                      style={{ animationDelay: `${index * 75}ms` }}
-                      onClick={() => handlePlaceClick(place.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          handlePlaceClick(place.id);
-                        }
-                      }}
-                    >
-                      <div className="flex justify-between items-start">
-                        {/* Main Content */}
-                        <div className="flex-1 min-w-0">
-                          {/* Title and Status */}
-                          <div className="flex items-start justify-between mb-2">
-                            <h4 className="text-lg font-semibold pr-2">
-                              {place.displayName?.text || 'Unnamed Place'}
-                            </h4>
-                            <span className="flex-shrink-0 px-3 py-1 text-xs font-medium text-green-900 bg-green-300/80 rounded-full">
-                              Open Now
-                            </span>
-                          </div>
-
-                          {/* Address */}
-                          <p className="text-sm opacity-70 flex items-start gap-2 mb-3">
-                            <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                            <span className="line-clamp-1">{place.formattedAddress || 'Address not available'}</span>
-                          </p>
-
-                          {/* Info Row */}
-                          <div className="flex flex-wrap items-center gap-4 text-sm">
-                            {/* Rating */}
-                            <RatingStars rating={place.rating} count={place.userRatingCount} size="sm" />
-                            
-                            {/* Distance */}
-                            <div className="flex items-center gap-1">
-                              <Car className="w-4 h-4 opacity-60" />
-                              <span className="font-medium">{formatDistance(place.distance)}</span>
-                            </div>
-
-                            {/* Price Level */}
-                            {detailedPlaces[place.id]?.priceLevel && (
-                              <div className="flex items-center gap-1">
-                                {[...Array(4)].map((_, i) => (
-                                  <DollarSign
-                                    key={i}
-                                    className={`w-3 h-3 ${
-                                      i < formatPriceLevel(detailedPlaces[place.id]?.priceLevel).count
-                                        ? 'text-green-500'
-                                        : 'text-gray-300/50'
-                                    }`}
-                                  />
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Quick Actions */}
-                            {detailedPlaces[place.id]?.internationalPhoneNumber && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.location.href = `tel:${detailedPlaces[place.id]?.internationalPhoneNumber}`;
-                                }}
-                                className="flex items-center gap-1 text-blue-400 hover:text-blue-300"
-                              >
-                                <Phone className="w-3 h-3" />
-                                <span>Call</span>
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Opening Hours Preview */}
-                          {detailedPlaces[place.id]?.regularOpeningHours?.weekdayDescriptions && (
-                            <div className="mt-3 text-xs opacity-60">
-                              <Clock className="w-3 h-3 inline mr-1" />
-                              {detailedPlaces[place.id]?.regularOpeningHours?.weekdayDescriptions[new Date().getDay()]}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Score Display */}
-                        <div className="ml-4 text-right">
-                          <ScoreIndicator score={place.suitabilityScore} />
-                        </div>
-                      </div>
-
-                      {/* View Details Link */}
-                      <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
-                        <span className="text-sm opacity-60">Click for photos, reviews & more</span>
-                        <ChevronRight className="w-4 h-4 opacity-60" />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
+  if (Object.keys(groupedPlaces).length === 0) {
+    return <EmptyState />;
   }
 
   return (
     <>
-      <div className="min-h-[400px]">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold opacity-95">Your Personalized Activities</h2>
-            <p className="text-sm opacity-70 mt-1">
-              Recommendations based on current weather and what's open now
-            </p>
-          </div>
-          {!showLoading && Object.keys(groupedPlaces).length > 0 && (
-            <div className="flex items-center gap-2 text-sm">
-              <Loader2 className="w-4 h-4 animate-spin opacity-50" />
-              <span className="opacity-70">Live updating</span>
-            </div>
-          )}
+      <div className="space-y-8">
+        {/* Section Header */}
+        <div className="text-center">
+          <h2 className={`text-3xl md:text-4xl font-bold mb-3 ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>
+            Your Personalized Activities
+          </h2>
+          <p className={`text-lg ${isDarkTheme ? 'text-white/70' : 'text-gray-600'}`}>
+            Activities perfectly matched to current conditions
+          </p>
         </div>
-        
-        {content}
+
+        {/* Category Filters */}
+        {categories.length > 1 && (
+          <div className="flex flex-wrap justify-center gap-3">
+            <button
+              onClick={() => setSelectedCategory(null)}
+              className={`px-4 py-2 rounded-full font-medium transition-all ${
+                !selectedCategory 
+                  ? 'bg-white/20 backdrop-blur-md text-white shadow-lg' 
+                  : 'bg-white/10 backdrop-blur-sm hover:bg-white/15'
+              }`}
+            >
+              All Categories
+            </button>
+            {categories.map(cat => {
+              const config = categoryConfig[cat] || categoryConfig['Other Recommendations'];
+              const Icon = config.icon;
+              const count = groupedPlaces[cat]?.length || 0;
+              
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all ${
+                    selectedCategory === cat 
+                      ? 'bg-white/20 backdrop-blur-md text-white shadow-lg' 
+                      : 'bg-white/10 backdrop-blur-sm hover:bg-white/15'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{cat}</span>
+                  <span className="px-2 py-0.5 text-xs bg-white/20 rounded-full">
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Activity Cards */}
+        <div className="space-y-12">
+          {Object.entries(displayedGroups).map(([categoryName, categoryPlaces]) => {
+            const config = categoryConfig[categoryName] || categoryConfig['Other Recommendations'];
+            const CategoryIcon = config.icon;
+            
+            return (
+              <div key={categoryName} className="space-y-6">
+                {/* Category Header */}
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-xl bg-gradient-to-br ${config.gradient} text-white shadow-xl`}>
+                    <CategoryIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className={`text-2xl font-bold ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>
+                      {categoryName}
+                    </h3>
+                    <p className={`text-sm ${isDarkTheme ? 'text-white/60' : 'text-gray-500'}`}>
+                      {categoryPlaces.length} perfect {categoryPlaces.length === 1 ? 'match' : 'matches'} nearby
+                    </p>
+                  </div>
+                </div>
+
+                {/* Cards Grid */}
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {categoryPlaces.slice(0, 6).map((place, index) => (
+                    <PlaceCard
+                      key={place.id}
+                      place={place}
+                      details={detailedPlaces[place.id]}
+                      isDark={isDarkTheme || false}
+                      index={index}
+                      category={categoryName}
+                      onClick={() => handlePlaceClick(place.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Activity Detail Modal */}
@@ -617,6 +644,7 @@ const ActivityList: React.FC<ActivityListProps> = ({
           placeId={selectedPlaceId}
           initialData={places.find(p => p.id === selectedPlaceId)}
           userCoordinates={userCoordinates}
+          weatherData={weatherData}
         />
       )}
     </>

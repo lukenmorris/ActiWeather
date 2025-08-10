@@ -1,3 +1,4 @@
+// src/types/index.ts
 // Interface for WeatherData (from OpenWeatherMap)
 export interface WeatherData {
     coord: { lon: number; lat: number };
@@ -59,11 +60,24 @@ export interface WeatherData {
     rating?: number;
     userRatingCount?: number;
     formattedAddress?: string;
-    // ADDED opening hours structure based on field mask
+    // UPDATED: Added full opening hours structure
     currentOpeningHours?: {
-        openNow?: boolean; // This is the field we requested
-        // Other fields like periods, weekdayDescriptions exist but we didn't request them
+        openNow?: boolean;
+        periods?: Array<{
+          open?: { day: number; hour: number; minute: number };
+          close?: { day: number; hour: number; minute: number };
+        }>;
+        weekdayDescriptions?: string[];
     };
+    regularOpeningHours?: {
+        openNow?: boolean;
+        periods?: Array<{
+          open?: { day: number; hour: number; minute: number };
+          close?: { day: number; hour: number; minute: number };
+        }>;
+        weekdayDescriptions?: string[];
+    };
+    businessStatus?: 'OPERATIONAL' | 'CLOSED_TEMPORARILY' | 'CLOSED_PERMANENTLY';
     // Calculated distance property (added later in ActivityList)
     distance?: number; // In meters or km
   }
@@ -73,4 +87,3 @@ export interface WeatherData {
       latitude: number;
       longitude: number;
   }
-  
