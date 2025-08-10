@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-// REMOVE: import { UserProvider } from "@/context/UserContext";
+import ProvidersWrapper from "@/components/ProvidersWrapper";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,8 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {/* REMOVE UserProvider Wrapper */}
-        {children}
+        <ProvidersWrapper>
+          {children}
+        </ProvidersWrapper>
       </body>
     </html>
   );

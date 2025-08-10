@@ -6,11 +6,14 @@ import React, { useState, useEffect } from 'react';
 // Import Components
 import WeatherDisplay from '@/components/WeatherDisplay';
 import ActivityList from '@/components/ActivityList';
-import LocationSelector from '@/components/LocationSelector';
+import PreferencesPanel from '@/components/PreferencesPanel';
+import PreferencesIndicator from '@/components/PreferencesIndicator';
 
 // Import Hooks and Utils
 import useGeolocation from '@/hooks/useGeolocation';
 import { getSuitableCategories, getPlaceTypesForCategory } from '@/lib/activityMapper';
+import { useUserPreferences } from '@/context/UserPreferencesContext';
+import { calculateWeatherSuitability } from '@/lib/geoUtils';
 
 // Import Types
 import type { Coordinates, WeatherData, GooglePlace } from '@/types';
@@ -19,7 +22,7 @@ import type { Coordinates, WeatherData, GooglePlace } from '@/types';
 import { 
   Activity, MapPin, Sparkles, TrendingUp, 
   Sun, Moon, CloudRain, CloudSnow, Cloud,
-  Loader2, AlertCircle, ChevronRight
+  Loader2, AlertCircle, Settings
 } from 'lucide-react';
 
 // --- Constants ---
@@ -46,6 +49,10 @@ export default function Home() {
 
   // Theme State
   const [theme, setTheme] = useState('theme-default');
+
+  // Preferences
+  const { preferences, getEffectivePlaceTypes, isPlaceTypeAllowed, getPersonalizedScore } = useUserPreferences();
+  const [showPreferences, setShowPreferences] = useState(false);
 
   // --- Helper Functions for Theme ---
   const getWeatherTheme = (weather: WeatherData | null): string => {
@@ -109,9 +116,14 @@ export default function Home() {
     if (typeof latitude === 'number' && typeof longitude === 'number') {
       console.log("Weather/Summary Effect: Geolocation coordinates available. Fetching weather...");
       setWeatherLoading(true);
-      setWeatherData(null); setWeatherError(null);
-      setPlaces([]); setPlacesError(null);
-      setSummaryText(null); setSuggestedTypes(null); setSummaryError(null); setSummaryLoading(false);
+      setWeatherData(null); 
+      setWeatherError(null);
+      setPlaces([]); 
+      setPlacesError(null);
+      setSummaryText(null); 
+      setSuggestedTypes(null); 
+      setSummaryError(null); 
+      setSummaryLoading(false);
 
       const fetchWeatherAndSummary = async () => {
         let fetchedWeatherData: WeatherData | null = null;
@@ -151,7 +163,8 @@ export default function Home() {
           console.error("Failed during Weather/Summary fetch:", err);
           if (!fetchedWeatherData) {
             setWeatherError(err.message || 'Could not fetch weather data.');
-            setWeatherData(null); setWeatherLoading(false);
+            setWeatherData(null); 
+            setWeatherLoading(false);
           } else {
             setSummaryError(err.message || 'Could not generate suggestions.');
             const fallbackSummary = `Couldn't get specific suggestions, but the weather is ${fetchedWeatherData.weather[0]?.description || 'varied'}.`;
@@ -168,17 +181,24 @@ export default function Home() {
       };
       fetchWeatherAndSummary();
     } else {
-      setWeatherData(null); setWeatherError(null); setWeatherLoading(false);
-      setPlaces([]); setPlacesError(null); setPlacesLoading(false);
-      setSummaryText(null); setSuggestedTypes(null); setSummaryError(null); setSummaryLoading(false);
+      setWeatherData(null); 
+      setWeatherError(null); 
+      setWeatherLoading(false);
+      setPlaces([]); 
+      setPlacesError(null); 
+      setPlacesLoading(false);
+      setSummaryText(null); 
+      setSuggestedTypes(null); 
+      setSummaryError(null); 
+      setSummaryLoading(false);
     }
   }, [geoCoordinates?.latitude, geoCoordinates?.longitude]);
 
-  // --- Effect for Fetching Places ---
+  // --- Effect for Fetching Places with Preferences ---
   useEffect(() => {
     const latitude = geoCoordinates?.latitude;
     const longitude = geoCoordinates?.longitude;
-    const radius = DEFAULT_RADIUS_METERS;
+    const radius = preferences.filters.maxRadius * 1000; // Convert km to meters
 
     if (suggestedTypes && suggestedTypes.length > 0 && typeof latitude === 'number' && typeof longitude === 'number') {
       console.log("Places Effect: Suggested types available, fetching places...");
@@ -188,10 +208,26 @@ export default function Home() {
 
       const fetchPlacesForSuggestions = async () => {
         try {
-          const typesToFetch = Array.from(new Set(suggestedTypes));
+          // Filter suggested types based on user preferences
+          let typesToFetch = Array.from(new Set(suggestedTypes));
+          
+          // Remove blacklisted types
+          typesToFetch = typesToFetch.filter(type => isPlaceTypeAllowed(type));
+          
+          // Add favorite types if not already included
+          const effectiveTypes = getEffectivePlaceTypes();
+          effectiveTypes.included.forEach(type => {
+            if (!typesToFetch.includes(type)) {
+              typesToFetch.push(type);
+            }
+          });
+          
           if (typesToFetch.length === 0) {
-             setPlaces([]); setPlacesLoading(false); return;
+            setPlaces([]); 
+            setPlacesLoading(false); 
+            return;
           }
+          
           console.log("Fetching places for types:", typesToFetch);
 
           const fetchPromises = typesToFetch.map(type => {
@@ -213,6 +249,18 @@ export default function Home() {
                 if (response.ok && Array.isArray(placesOfType)) {
                   placesOfType.forEach(place => {
                     if (place.id && !uniquePlaceIds.has(place.id)) {
+                      // Check minimum rating filter
+                      if (preferences.filters.minRating > 0 && 
+                          (!place.rating || place.rating < preferences.filters.minRating)) {
+                        return; // Skip this place
+                      }
+                      
+                      // Check open now filter
+                      if (preferences.filters.openNowOnly && 
+                          place.currentOpeningHours?.openNow === false) {
+                        return; // Skip closed places
+                      }
+                      
                       uniquePlaceIds.add(place.id);
                       aggregatedPlaces.push(place);
                     }
@@ -227,7 +275,8 @@ export default function Home() {
                   }
                 }
               } catch (e) {
-                 fetchErrors.push('Failed to process place results.'); console.error("Failed to parse places response:", e);
+                fetchErrors.push('Failed to process place results.'); 
+                console.error("Failed to parse places response:", e);
               }
             } else {
               fetchErrors.push(`Network error: ${result.reason?.message || 'Failed to fetch'}`);
@@ -258,7 +307,7 @@ export default function Home() {
       setPlacesLoading(false);
       setPlacesError(null);
     }
-  }, [suggestedTypes, geoCoordinates?.latitude, geoCoordinates?.longitude]);
+  }, [suggestedTypes, geoCoordinates?.latitude, geoCoordinates?.longitude, preferences.filters, isPlaceTypeAllowed, getEffectivePlaceTypes]);
 
   // --- Determine Overall Loading / Error State for UI ---
   const isPageLoading = geoLoading || weatherLoading || summaryLoading;
@@ -270,154 +319,35 @@ export default function Home() {
   // --- Component Return ---
   return (
     <main className={`min-h-screen ${getThemeClasses(theme)} transition-all duration-1000 ease-in-out relative overflow-hidden`}>
+      {/* Settings Button */}
+      <button
+        onClick={() => setShowPreferences(true)}
+        className={`fixed top-4 right-4 z-40 p-3 rounded-full backdrop-blur-md transition-all duration-200 ${
+          isDarkTheme 
+            ? 'bg-white/10 hover:bg-white/20 text-white' 
+            : 'bg-black/10 hover:bg-black/20 text-gray-900'
+        } shadow-lg hover:shadow-xl transform hover:scale-105`}
+        aria-label="Open preferences"
+      >
+        <Settings className="w-6 h-6" />
+      </button>
+
+      {/* Mood indicator */}
+      {preferences.activityTypes.activeMood && (
+        <div className={`fixed top-20 right-4 z-30 px-4 py-2 rounded-full backdrop-blur-md ${
+          isDarkTheme ? 'bg-white/10 text-white' : 'bg-black/10 text-gray-900'
+        }`}>
+          <span className="text-sm font-medium capitalize">
+            Mood: {preferences.activityTypes.activeMood}
+          </span>
+        </div>
+      )}
+
       {/* Weather-Adaptive Animated Background */}
       <div className="fixed inset-0 pointer-events-none">
-        {/* Base gradient overlay */}
         <div className="absolute inset-0 opacity-30">
           <div className={`absolute inset-0 bg-gradient-to-t from-black/50 to-transparent`} />
         </div>
-        
-        {/* Weather-specific animations */}
-        {weatherData && (
-          <>
-            {/* Clear Day - Floating sun rays */}
-            {theme === 'theme-clear-day' && (
-              <>
-                <div className="absolute top-20 right-20 w-96 h-96">
-                  <div className="relative w-full h-full">
-                    <div className="absolute inset-0 bg-yellow-300 rounded-full blur-3xl opacity-20 animate-pulse" />
-                    <div className="absolute inset-8 bg-orange-300 rounded-full blur-2xl opacity-15 animate-pulse animation-delay-1000" />
-                  </div>
-                </div>
-                {/* Floating light particles */}
-                {[...Array(5)].map((_, i) => (
-                  <div
-                    key={`sun-particle-${i}`}
-                    className="absolute w-2 h-2 bg-yellow-200 rounded-full opacity-40 animate-float"
-                    style={{
-                      left: `${20 + i * 15}%`,
-                      top: `${10 + i * 10}%`,
-                      animationDelay: `${i * 0.5}s`,
-                      animationDuration: `${8 + i * 2}s`
-                    }}
-                  />
-                ))}
-              </>
-            )}
-            
-            {/* Clear Night - Twinkling stars */}
-            {theme === 'theme-clear-night' && (
-              <>
-                <div className="absolute top-20 right-20 w-64 h-64">
-                  <div className="relative w-full h-full">
-                    <div className="absolute inset-0 bg-blue-200 rounded-full blur-3xl opacity-10 animate-pulse" />
-                  </div>
-                </div>
-                {/* Stars */}
-                {[...Array(20)].map((_, i) => (
-                  <div
-                    key={`star-${i}`}
-                    className="absolute w-1 h-1 bg-white rounded-full animate-twinkle"
-                    style={{
-                      left: `${Math.random() * 100}%`,
-                      top: `${Math.random() * 60}%`,
-                      animationDelay: `${Math.random() * 5}s`,
-                      opacity: 0.3 + Math.random() * 0.7
-                    }}
-                  />
-                ))}
-              </>
-            )}
-            
-            {/* Rainy - Falling raindrops */}
-            {theme === 'theme-rainy' && (
-              <>
-                {[...Array(15)].map((_, i) => (
-                  <div
-                    key={`rain-${i}`}
-                    className="absolute w-0.5 h-8 bg-gradient-to-b from-transparent via-blue-400/30 to-transparent animate-rain"
-                    style={{
-                      left: `${Math.random() * 100}%`,
-                      animationDelay: `${Math.random() * 2}s`,
-                      animationDuration: '1.5s'
-                    }}
-                  />
-                ))}
-                {/* Thunder flashes */}
-                {weatherData.weather[0]?.main === 'Thunderstorm' && (
-                  <div className="absolute inset-0 bg-white opacity-0 animate-thunder" />
-                )}
-              </>
-            )}
-            
-            {/* Snowy - Falling snowflakes */}
-            {theme === 'theme-snowy' && (
-              <>
-                {[...Array(25)].map((_, i) => (
-                  <div
-                    key={`snow-${i}`}
-                    className="absolute animate-snow"
-                    style={{
-                      left: `${Math.random() * 100}%`,
-                      animationDelay: `${Math.random() * 10}s`,
-                      animationDuration: `${10 + Math.random() * 10}s`,
-                      fontSize: `${10 + Math.random() * 20}px`,
-                      opacity: 0.3 + Math.random() * 0.5
-                    }}
-                  >
-                    ❄
-                  </div>
-                ))}
-              </>
-            )}
-            
-            {/* Cloudy/Foggy - Drifting clouds */}
-            {(theme.includes('cloudy') || theme === 'theme-foggy') && (
-              <>
-                {[...Array(4)].map((_, i) => (
-                  <div
-                    key={`cloud-${i}`}
-                    className="absolute animate-drift"
-                    style={{
-                      top: `${20 + i * 15}%`,
-                      animationDelay: `${i * 3}s`,
-                      animationDuration: `${30 + i * 10}s`
-                    }}
-                  >
-                    <div className={`w-96 h-32 rounded-full blur-3xl ${
-                      isDarkTheme ? 'bg-gray-600' : 'bg-gray-300'
-                    } opacity-20`} />
-                  </div>
-                ))}
-              </>
-            )}
-            
-            {/* Wind effect for windy conditions */}
-            {weatherData.wind.speed > 15 && (
-              <>
-                {[...Array(3)].map((_, i) => (
-                  <div
-                    key={`wind-${i}`}
-                    className="absolute h-1 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-wind"
-                    style={{
-                      top: `${30 + i * 20}%`,
-                      width: '200px',
-                      animationDelay: `${i * 0.5}s`
-                    }}
-                  />
-                ))}
-              </>
-            )}
-          </>
-        )}
-        
-        {/* Default animated orbs when no weather data */}
-        {!weatherData && (
-          <>
-            <div className={`absolute -top-40 -right-40 w-96 h-96 rounded-full blur-3xl opacity-20 animate-pulse bg-purple-600`} />
-            <div className={`absolute -bottom-40 -left-40 w-96 h-96 rounded-full blur-3xl opacity-20 animate-pulse animation-delay-2000 bg-blue-600`} />
-          </>
-        )}
       </div>
 
       {/* Content Container */}
@@ -445,10 +375,6 @@ export default function Home() {
                     ? 'bg-white/5 border-white/10' 
                     : 'bg-white/30 border-white/40'
                 } shadow-2xl`}>
-                  {/* Decorative corner accents */}
-                  <div className="absolute top-0 left-0 w-20 h-20 border-t-2 border-l-2 border-white/20 rounded-tl-3xl" />
-                  <div className="absolute bottom-0 right-0 w-20 h-20 border-b-2 border-r-2 border-white/20 rounded-br-3xl" />
-                  
                   <div className="relative">
                     {/* Location and Weather */}
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6">
@@ -498,7 +424,7 @@ export default function Home() {
                             </span>
                             <span className="flex items-center gap-2">
                               <MapPin className="w-4 h-4" />
-                              Within 5km radius
+                              Within {preferences.filters.maxRadius}km radius
                             </span>
                           </div>
                         )}
@@ -553,169 +479,18 @@ export default function Home() {
         )}
       </div>
 
-      {/* CSS for custom animations */}
-      <style jsx>{`
-        @keyframes fade-in-down {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+      {/* Preferences Indicator */}
+      <PreferencesIndicator 
+        isDarkTheme={isDarkTheme}
+        onOpenPreferences={() => setShowPreferences(true)}
+      />
 
-        @keyframes fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @keyframes float {
-          0%, 100% {
-            transform: translateY(0) translateX(0);
-          }
-          25% {
-            transform: translateY(-20px) translateX(10px);
-          }
-          50% {
-            transform: translateY(10px) translateX(-10px);
-          }
-          75% {
-            transform: translateY(-10px) translateX(20px);
-          }
-        }
-
-        @keyframes twinkle {
-          0%, 100% {
-            opacity: 0.3;
-          }
-          50% {
-            opacity: 1;
-          }
-        }
-
-        @keyframes rain {
-          0% {
-            transform: translateY(-100vh);
-            opacity: 0;
-          }
-          10% {
-            opacity: 1;
-          }
-          90% {
-            opacity: 1;
-          }
-          100% {
-            transform: translateY(100vh);
-            opacity: 0;
-          }
-        }
-
-        @keyframes snow {
-          0% {
-            transform: translateY(-100vh) translateX(0) rotate(0deg);
-          }
-          100% {
-            transform: translateY(100vh) translateX(100px) rotate(360deg);
-          }
-        }
-
-        @keyframes drift {
-          0% {
-            transform: translateX(-100%);
-          }
-          100% {
-            transform: translateX(calc(100vw + 100%));
-          }
-        }
-
-        @keyframes wind {
-          0% {
-            transform: translateX(-100%);
-            opacity: 0;
-          }
-          10% {
-            opacity: 0.3;
-          }
-          90% {
-            opacity: 0.3;
-          }
-          100% {
-            transform: translateX(calc(100vw + 100%));
-            opacity: 0;
-          }
-        }
-
-        @keyframes thunder {
-          0%, 100% {
-            opacity: 0;
-          }
-          10%, 11% {
-            opacity: 0.1;
-          }
-          12% {
-            opacity: 0;
-          }
-          20%, 21% {
-            opacity: 0.05;
-          }
-        }
-
-        .animate-fade-in-down {
-          animation: fade-in-down 0.8s ease-out forwards;
-        }
-
-        .animate-fade-in-up {
-          animation: fade-in-up 0.8s ease-out forwards;
-        }
-
-        .animate-float {
-          animation: float 8s ease-in-out infinite;
-        }
-
-        .animate-twinkle {
-          animation: twinkle 3s ease-in-out infinite;
-        }
-
-        .animate-rain {
-          animation: rain 1.5s linear infinite;
-        }
-
-        .animate-snow {
-          animation: snow 10s linear infinite;
-        }
-
-        .animate-drift {
-          animation: drift 30s linear infinite;
-        }
-
-        .animate-wind {
-          animation: wind 3s linear infinite;
-        }
-
-        .animate-thunder {
-          animation: thunder 5s ease-in-out infinite;
-        }
-
-        .animation-delay-200 {
-          animation-delay: 200ms;
-        }
-
-        .animation-delay-1000 {
-          animation-delay: 1000ms;
-        }
-
-        .animation-delay-2000 {
-          animation-delay: 2000ms;
-        }
-      `}</style>
+      {/* Preferences Panel */}
+      <PreferencesPanel 
+        isOpen={showPreferences} 
+        onClose={() => setShowPreferences(false)}
+        isDarkTheme={isDarkTheme}
+      />
     </main>
   );
 }
