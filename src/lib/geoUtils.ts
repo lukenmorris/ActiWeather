@@ -337,7 +337,9 @@ function calculateUniquenessBonus(
     if (hour >= 22 && placeTypes.includes('night_club')) bonus += 3; // Late night venue
     
     // Weather-specific perfect matches
-    if (weatherData.snow && placeTypes.includes('ski_resort')) bonus += 5;
+    // Check if it's snowing based on weather condition ID (6xx codes are for snow)
+    const isSnowing = weatherData.weather[0]?.id && Math.floor(weatherData.weather[0].id / 100) === 6;
+    if (isSnowing && placeTypes.includes('ski_resort')) bonus += 5;
     if (weatherData.main.temp > TEMP_HOT && placeTypes.includes('water_park')) bonus += 5;
     
     return Math.min(10, bonus);
