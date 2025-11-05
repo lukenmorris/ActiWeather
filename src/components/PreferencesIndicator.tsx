@@ -130,7 +130,6 @@ export default function PreferencesIndicator({
             </span>
           </div>
         )}
-        
         {/* Special filters */}
         <div className="flex flex-wrap gap-2">
           {preferences.filters.familyFriendly && (
