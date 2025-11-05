@@ -68,7 +68,7 @@ export default function MapView({
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
   const userMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
-  const isInitializedRef = useRef(false); // ← ADD THIS LINE HERE
+  const loaderRef = useRef<Loader | null>(null); // Store loader instance
   
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -76,20 +76,27 @@ export default function MapView({
   const [selectedPlace, setSelectedPlace] = useState<GooglePlace | null>(null);
   const [mapStyle, setMapStyle] = useState<'roadmap' | 'terrain' | 'satellite'>('roadmap');
 
-console.log('=== DEBUG INFO ===');
-console.log('API Key from env:', process.env.NEXT_PUBLIC_MAPS_API_KEY);
-console.log('API Key exists?', !!process.env.NEXT_PUBLIC_MAPS_API_KEY);
-console.log('API Key length:', process.env.NEXT_PUBLIC_MAPS_API_KEY?.length);
-console.log('==================');
+  console.log('=== DEBUG INFO ===');
+  console.log('API Key from env:', process.env.NEXT_PUBLIC_MAPS_API_KEY);
+  console.log('API Key exists?', !!process.env.NEXT_PUBLIC_MAPS_API_KEY);
+  console.log('API Key length:', process.env.NEXT_PUBLIC_MAPS_API_KEY?.length);
+  console.log('==================');
 
-  // Initialize Google Maps
+  // Initialize Google Maps - FIXED VERSION
   useEffect(() => {
     const initMap = async () => {
-      if (!mapRef.current || !userCoordinates) return;
+      if (!mapRef.current || !userCoordinates) {
+        console.log('Missing mapRef or coordinates, skipping init');
+        return;
+      }
       
-      // Prevent multiple initializations
-      if (isInitializedRef.current) {
-        console.log('Map already initialized, skipping...');
+      // If map already exists, just update center
+      if (googleMapRef.current) {
+        console.log('Map already exists, updating center');
+        googleMapRef.current.setCenter({
+          lat: userCoordinates.latitude,
+          lng: userCoordinates.longitude
+        });
         return;
       }
       
@@ -101,16 +108,16 @@ console.log('==================');
           throw new Error('API key not found');
         }
         
-        const loader = new Loader({
-          apiKey: apiKey,
-          version: 'weekly',
-          libraries: ['marker'],
-        });
+        // Reuse loader if it exists
+        if (!loaderRef.current) {
+          loaderRef.current = new Loader({
+            apiKey: apiKey,
+            version: 'weekly',
+            libraries: ['marker'],
+          });
+        }
         
-        await loader.load();
-        
-        // Mark as initialized BEFORE creating the map
-        isInitializedRef.current = true;
+        await loaderRef.current.load();
         
         const { Map } = await google.maps.importLibrary('maps') as google.maps.MapsLibrary;
         const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary('marker') as google.maps.MarkerLibrary;
@@ -151,6 +158,7 @@ console.log('==================');
         infoWindowRef.current = new google.maps.InfoWindow();
 
         setIsLoading(false);
+        console.log('Map initialized successfully');
       } catch (error) {
         console.error('Error initializing map:', error);
         console.error('Error details:', {
@@ -160,83 +168,95 @@ console.log('==================');
         });
         setLoadError(`Failed to load map: ${error instanceof Error ? error.message : 'Unknown error'}`);
         setIsLoading(false);
-        isInitializedRef.current = false; // Reset on error
       }
     };
 
     initMap();
 
+    // Cleanup - DON'T destroy the map, just clean up markers
     return () => {
-      // Cleanup
-      isInitializedRef.current = false; // Reset on cleanup
-      markersRef.current.forEach(marker => {
-        marker.map = null;
-      });
-      if (userMarkerRef.current) {
-        userMarkerRef.current.map = null;
-      }
-    };
-  }, [userCoordinates, isDarkTheme]);
-
-  // Update markers when places change
-  useEffect(() => {
-    if (!googleMapRef.current || !weatherData) return;
-
-    const updateMarkers = async () => {
-      const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary('marker') as google.maps.MarkerLibrary;
-
-      // Clear existing markers
+      console.log('Cleaning up markers (not destroying map)');
       markersRef.current.forEach(marker => {
         marker.map = null;
       });
       markersRef.current = [];
+    };
+  }, [userCoordinates?.latitude, userCoordinates?.longitude, isDarkTheme]);
 
-      // Create markers for places
-      places.forEach(place => {
-        if (!place.location) return;
-
-        const distance = place.distance || 0;
-        const score = calculateWeatherSuitability(
-          { ...place, distance },
-          weatherData
-        );
-
-        const category = getCategoryForPlace(place);
-        const categoryName = category?.valueOf() || 'Other';
-        
-        // Create custom pin with score-based color
-        const pin = new PinElement({
-          background: getMarkerColor(score),
-          borderColor: '#ffffff',
-          glyphColor: '#ffffff',
-          scale: 1.2,
-        });
-
-        const marker = new AdvancedMarkerElement({
-          map: googleMapRef.current,
-          position: { lat: place.location.latitude, lng: place.location.longitude },
-          content: pin.element,
-          title: place.displayName?.text || 'Unknown',
-        });
-
-        // Add click listener
-        marker.addListener('click', () => {
-          setSelectedPlace(place);
-          
-          // Show info window
-          if (infoWindowRef.current) {
-            const content = createInfoWindowContent(place, score, categoryName);
-            infoWindowRef.current.setContent(content);
-            infoWindowRef.current.open(googleMapRef.current, marker);
-          }
-        });
-
-        markersRef.current.push(marker);
+  // Update markers when places change - SEPARATE EFFECT
+  useEffect(() => {
+    if (!googleMapRef.current || !weatherData || places.length === 0) {
+      console.log('Skipping marker update:', {
+        hasMap: !!googleMapRef.current,
+        hasWeather: !!weatherData,
+        placesCount: places.length
       });
+      return;
+    }
+
+    console.log('Updating markers for', places.length, 'places');
+
+    const updateMarkers = async () => {
+      try {
+        const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary('marker') as google.maps.MarkerLibrary;
+
+        // Clear existing markers
+        markersRef.current.forEach(marker => {
+          marker.map = null;
+        });
+        markersRef.current = [];
+
+        // Create markers for places
+        places.forEach(place => {
+          if (!place.location) return;
+
+          const distance = place.distance || 0;
+          const score = calculateWeatherSuitability(
+            { ...place, distance },
+            weatherData
+          );
+
+          const category = getCategoryForPlace(place);
+          const categoryName = category?.valueOf() || 'Other';
+          
+          // Create custom pin with score-based color
+          const pin = new PinElement({
+            background: getMarkerColor(score),
+            borderColor: '#ffffff',
+            glyphColor: '#ffffff',
+            scale: 1.2,
+          });
+
+          const marker = new AdvancedMarkerElement({
+            map: googleMapRef.current,
+            position: { lat: place.location.latitude, lng: place.location.longitude },
+            content: pin.element,
+            title: place.displayName?.text || 'Unknown',
+          });
+
+          // Add click listener
+          marker.addListener('click', () => {
+            setSelectedPlace(place);
+            
+            // Show info window
+            if (infoWindowRef.current) {
+              const content = createInfoWindowContent(place, score, categoryName);
+              infoWindowRef.current.setContent(content);
+              infoWindowRef.current.open(googleMapRef.current, marker);
+            }
+          });
+
+          markersRef.current.push(marker);
+        });
+
+        console.log('Created', markersRef.current.length, 'markers');
+      } catch (error) {
+        console.error('Error updating markers:', error);
+      }
     };
 
     updateMarkers();
-  }, [places, weatherData]);
+  }, [places, weatherData]); // Only depend on places and weatherData
 
   // Create info window content
   const createInfoWindowContent = (place: GooglePlace, score: number, category: string): string => {
@@ -372,7 +392,7 @@ console.log('==================');
           </div>
         )}
 
-        {/* Map Controls */}
+        {/* Map Controls - Rest of the component remains the same */}
         {!isLoading && !loadError && (
           <>
             {/* Top Controls */}
