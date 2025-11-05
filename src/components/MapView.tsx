@@ -12,7 +12,7 @@ import {
   MapPin, Star, TrendingUp, X, ChevronRight, Sparkles,
   Utensils, Coffee, ShoppingBag, TreePine, Gamepad2, Book,
   Palette, Heart, Flame, Zap, Shield, Info, Award, Clock,
-  DollarSign, Users, Eye
+  DollarSign, Users, Eye, EyeOff
 } from 'lucide-react';
 
 interface MapViewProps {
@@ -115,7 +115,7 @@ export default function MapView({
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
   const userMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
-  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const customOverlayRef = useRef<any | null>(null);
   
   // Store the marker library reference
   const markerLibRef = useRef<google.maps.MarkerLibrary | null>(null);
@@ -127,6 +127,7 @@ export default function MapView({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [mapStyle, setMapStyle] = useState<'roadmap' | 'terrain' | 'satellite'>('roadmap');
   const [isMapReady, setIsMapReady] = useState(false);
+  const [overlayPlace, setOverlayPlace] = useState<{place: GooglePlace, score: number, category: string, distance: number} | null>(null);
 
   // Initialize Google Maps once
   useEffect(() => {
@@ -181,6 +182,11 @@ export default function MapView({
         googleMapRef.current = map;
         console.log('✅ Map created');
 
+        // Close overlay when map is clicked
+        map.addListener('click', () => {
+          setOverlayPlace(null);
+        });
+
         // Create user location marker
         const { PinElement, AdvancedMarkerElement } = markerLib;
         const userPin = new PinElement({
@@ -200,8 +206,56 @@ export default function MapView({
         userMarkerRef.current = userMarker;
         console.log('✅ User marker created');
 
-        // Create info window
-        infoWindowRef.current = new google.maps.InfoWindow();
+        // Define Custom Overlay Class
+        class CustomInfoOverlay extends google.maps.OverlayView {
+          position: google.maps.LatLng;
+          containerDiv: HTMLDivElement;
+
+          constructor(position: google.maps.LatLng) {
+            super();
+            this.position = position;
+            this.containerDiv = document.createElement('div');
+            this.containerDiv.style.position = 'absolute';
+          }
+
+          onAdd() {
+            const panes = this.getPanes();
+            panes?.floatPane.appendChild(this.containerDiv);
+          }
+
+          draw() {
+            const overlayProjection = this.getProjection();
+            const pos = overlayProjection.fromLatLngToDivPixel(this.position);
+            
+            if (pos) {
+              this.containerDiv.style.left = pos.x + 'px';
+              this.containerDiv.style.top = pos.y + 'px';
+              this.containerDiv.style.transform = 'translate(-50%, -100%)';
+              this.containerDiv.style.marginTop = '-20px';
+            }
+          }
+
+          onRemove() {
+            if (this.containerDiv.parentElement) {
+              this.containerDiv.parentElement.removeChild(this.containerDiv);
+            }
+          }
+
+          setContent(content: string) {
+            this.containerDiv.innerHTML = content;
+          }
+
+          hide() {
+            this.containerDiv.style.display = 'none';
+          }
+
+          show() {
+            this.containerDiv.style.display = 'block';
+          }
+        }
+
+        // Store overlay class for later use
+        (window as any).CustomInfoOverlay = CustomInfoOverlay;
 
         setIsLoading(false);
         setIsMapReady(true);
@@ -236,7 +290,7 @@ export default function MapView({
     }
 
     console.log('🎯 Starting marker update for', places.length, 'places');
-    console.log('Sample place data:', places[0]); // Debug: see structure
+    console.log('Sample place data:', places[0]);
 
     const updateMarkers = () => {
       try {
@@ -276,7 +330,6 @@ export default function MapView({
         const openPlaces = places.filter(place => {
           const placeDetails = place as any;
           
-          // Debug: log place info
           console.log(`Checking place: ${place.displayName?.text}`);
           console.log(`  Types:`, place.types);
           console.log(`  currentOpeningHours:`, placeDetails.currentOpeningHours);
@@ -290,11 +343,10 @@ export default function MapView({
           if (isAlwaysAccessible) {
             const accessibleType = place.types?.find(t => alwaysAccessibleTypes.has(t));
             console.log(`  ✅ Always accessible: ${accessibleType}`);
-            return true; // Always show parks, outdoor spaces, etc.
+            return true;
           }
           
           // For businesses with hours, check if they're open
-          // Check currentOpeningHours first (most accurate for "right now")
           if (placeDetails.currentOpeningHours !== undefined) {
             const isOpen = placeDetails.currentOpeningHours?.openNow;
             console.log(`  Current hours - openNow:`, isOpen);
@@ -320,8 +372,6 @@ export default function MapView({
             }
           }
           
-          // If no opening hours data for a non-outdoor venue, be permissive and show it
-          // (Better to show than hide - user can see "no hours" in popup)
           console.log(`  ⚠️ No opening hours data - showing anyway`);
           return true;
         });
@@ -343,7 +393,13 @@ export default function MapView({
           );
 
           const category = getCategoryForPlace(place);
-          const categoryName = category?.valueOf() || 'Other';
+          // The enum value IS the string (e.g., "Food & Drink")
+          const categoryName = category || 'Other';
+          
+          console.log(`📍 Place: ${place.displayName?.text}`);
+          console.log(`   Types:`, place.types);
+          console.log(`   Category:`, category);
+          console.log(`   Category name:`, categoryName);
           
           // Create custom pin with score-based color
           const pin = new PinElement({
@@ -360,14 +416,9 @@ export default function MapView({
             title: place.displayName?.text || 'Unknown',
           });
 
-          // Add click listener - only show info window
+          // Add click listener - set overlay state with correct category
           marker.addListener('click', () => {
-            // Show info window
-            if (infoWindowRef.current) {
-              const content = createInfoWindowContent(place, score, categoryName, distance);
-              infoWindowRef.current.setContent(content);
-              infoWindowRef.current.open(googleMapRef.current!, marker);
-            }
+            setOverlayPlace({ place, score, category: categoryName, distance });
           });
 
           markersRef.current.push(marker);
@@ -380,136 +431,252 @@ export default function MapView({
       }
     };
 
-    // Run marker update
     updateMarkers();
   }, [places, weatherData, isMapReady]);
 
-  // Create enhanced info window content
+  // Manage custom overlay
+  useEffect(() => {
+    if (!googleMapRef.current || !overlayPlace) {
+      // Hide overlay if it exists
+      if (customOverlayRef.current) {
+        customOverlayRef.current.setMap(null);
+        customOverlayRef.current = null;
+      }
+      return;
+    }
+
+    const { place, score, category, distance } = overlayPlace;
+    
+    // Always create a new overlay instance for the new position
+    // Remove old overlay first
+    if (customOverlayRef.current) {
+      customOverlayRef.current.setMap(null);
+      customOverlayRef.current = null;
+    }
+
+    // Create new overlay at the new marker position
+    if ((window as any).CustomInfoOverlay && place.location) {
+      const position = new google.maps.LatLng(
+        place.location.latitude,
+        place.location.longitude
+      );
+      customOverlayRef.current = new (window as any).CustomInfoOverlay(position);
+      customOverlayRef.current.setMap(googleMapRef.current);
+      
+      // Set content
+      const content = createInfoWindowContent(place, score, category, distance);
+      customOverlayRef.current.setContent(content);
+      customOverlayRef.current.show();
+    }
+
+  }, [overlayPlace]);
+
+  // Create enhanced info window content with modern design
   const createInfoWindowContent = (
     place: GooglePlace, 
     score: number, 
     category: string,
     distance: number
   ): string => {
-    const ScoreIcon = getScoreIcon(score);
-    const CategoryIcon = categoryIcons[category] || Sparkles;
-    const gradient = getScoreGradient(score);
-    const scoreLabel = getScoreLabel(score);
     const placeDetails = place as any;
+    const markerColor = getMarkerColor(score);
+    const scoreLabel = getScoreLabel(score);
+    
+    // Build the Top Rated badge conditionally
+    const topRatedBadge = place.rating && place.rating >= 4.7 
+      ? `<div style="
+          margin-left: auto;
+          padding: 4px 10px;
+          background: rgba(255, 255, 255, 0.6);
+          border-radius: 8px;
+          font-size: 10px;
+          font-weight: 800;
+          color: #92400e;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        ">
+          Top Rated
+        </div>`
+      : '';
     
     return `
       <div class="map-info-window" style="
-        width: 320px;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        background: #ffffff;
-        border-radius: 16px;
+        width: 360px;
+        max-width: 90vw;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+        background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+        border-radius: 20px;
         overflow: hidden;
-        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.25), 
+                    0 0 0 1px rgba(0, 0, 0, 0.08),
+                    0 12px 24px -8px rgba(0, 0, 0, 0.15);
+        position: relative;
       ">
-        <!-- Header with gradient -->
-        <div style="
-          background: linear-gradient(135deg, ${getMarkerColor(score)}12 0%, ${getMarkerColor(score)}06 100%);
-          padding: 16px;
-          border-bottom: 2px solid ${getMarkerColor(score)}35;
-        ">
-          <!-- Score badge -->
-          <div style="
+        <!-- Close button - top right, clean design -->
+        <button 
+          onclick="window.dispatchEvent(new CustomEvent('close-overlay'))"
+          style="
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 20;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+            backdrop-filter: blur(12px);
+            color: #64748b;
+            cursor: pointer;
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            margin-bottom: 12px;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.8);
+          "
+          onmouseover="
+            this.style.background='linear-gradient(135deg, rgba(239, 68, 68, 0.95) 0%, rgba(220, 38, 38, 1) 100%)'; 
+            this.style.color='white';
+            this.style.transform='scale(1.1) rotate(90deg)';
+            this.style.borderColor='rgba(255, 255, 255, 1)';
+            this.style.boxShadow='0 6px 16px rgba(239, 68, 68, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.3)';
+          "
+          onmouseout="
+            this.style.background='linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%)'; 
+            this.style.color='#64748b';
+            this.style.transform='scale(1) rotate(0deg)';
+            this.style.borderColor='rgba(255, 255, 255, 0.9)';
+            this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.8)';
+          "
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="pointer-events: none;">
+            <path d="M18 6L6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+        
+        <!-- Decorative gradient border on top edge -->
+        <div style="
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 4px;
+          background: linear-gradient(90deg, ${markerColor}CC 0%, ${markerColor} 15%, ${markerColor} 85%, ${markerColor}CC 100%);
+          z-index: 10;
+        "></div>
+        
+        <!-- Header section with gradient background -->
+        <div style="
+          background: linear-gradient(135deg, ${markerColor}15 0%, ${markerColor}08 50%, ${markerColor}15 100%);
+          padding: 20px;
+          padding-top: 24px;
+          position: relative;
+          z-index: 5;
+        ">
+          <!-- Floating score badge - top right -->
+          <div style="
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            padding: 12px 14px;
+            background: linear-gradient(135deg, ${markerColor}18 0%, ${markerColor}08 100%);
+            backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 2px solid ${markerColor}40;
+            box-shadow: 0 8px 16px -4px ${markerColor}25, inset 0 1px 2px rgba(255, 255, 255, 0.3);
           ">
             <div style="
-              display: inline-flex;
-              align-items: center;
-              gap: 7px;
-              padding: 7px 14px;
-              background: white;
-              border-radius: 20px;
-              font-size: 12px;
-              font-weight: 700;
-              color: #4b5563;
-              text-transform: uppercase;
-              letter-spacing: 0.6px;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
-            ">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${getMarkerColor(score)}" stroke-width="2.5">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                <circle cx="12" cy="10" r="3"></circle>
-              </svg>
-              ${category}
-            </div>
-            
+              font-size: 32px;
+              font-weight: 900;
+              color: ${markerColor};
+              line-height: 1;
+              letter-spacing: -1.2px;
+              text-shadow: 0 2px 4px ${markerColor}20;
+            ">${score}</div>
             <div style="
-              display: flex;
-              flex-direction: column;
-              align-items: flex-end;
-              gap: 5px;
-              padding: 10px 16px;
-              background: ${getMarkerColor(score)}12;
-              border-radius: 12px;
-              border: 2px solid ${getMarkerColor(score)};
-            ">
-              <div style="
-                font-size: 28px;
-                font-weight: 900;
-                color: ${getMarkerColor(score)};
-                line-height: 1;
-                letter-spacing: -0.8px;
-              ">${score}</div>
-              <div style="
-                font-size: 10px;
-                font-weight: 800;
-                color: ${getMarkerColor(score)};
-                text-transform: uppercase;
-                letter-spacing: 0.6px;
-              ">${scoreLabel}</div>
-            </div>
+              font-size: 9px;
+              font-weight: 800;
+              color: ${markerColor};
+              text-transform: uppercase;
+              letter-spacing: 0.8px;
+              opacity: 0.9;
+            ">${scoreLabel}</div>
           </div>
           
-          <!-- Place name -->
+          <!-- Category badge -->
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            margin-bottom: 16px;
+          ">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${markerColor}" stroke-width="2.5" stroke-linecap="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+              <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+            ${category || 'Other'}
+          </div>
+          
+          <!-- Place name with better hierarchy -->
           <h3 style="
-            margin: 0;
-            font-size: 18px;
+            margin: 0 80px 12px 0;
+            font-size: 20px;
             font-weight: 800;
             color: #111827;
             line-height: 1.3;
-            margin-bottom: 10px;
-            letter-spacing: -0.2px;
+            letter-spacing: -0.4px;
           ">${place.displayName?.text || 'Unknown Place'}</h3>
           
-          <!-- Status and price -->
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <!-- Status badges with modern styling -->
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             ${place.currentOpeningHours?.openNow !== false ? `
               <span style="
                 display: inline-flex;
                 align-items: center;
                 gap: 6px;
-                padding: 6px 14px;
-                background: #10b98120;
-                color: #047857;
-                border-radius: 12px;
-                font-size: 12px;
-                font-weight: 700;
-                border: 1.5px solid #10b98135;
+                padding: 6px 12px;
+                background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+                color: #065f46;
+                border-radius: 10px;
+                font-size: 11px;
+                font-weight: 800;
+                border: 1.5px solid #6ee7b7;
+                box-shadow: 0 2px 4px rgba(16, 185, 129, 0.15);
+                letter-spacing: 0.3px;
               ">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="#10b981">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="#10b981">
                   <circle cx="12" cy="12" r="12"/>
                 </svg>
-                Open Now
+                OPEN
               </span>
             ` : ''}
             ${placeDetails.priceLevel ? `
               <span style="
                 display: inline-flex;
                 align-items: center;
-                padding: 6px 14px;
-                background: #f0fdf4;
-                border: 1.5px solid #86efac;
-                border-radius: 12px;
-                font-size: 12px;
-                font-weight: 700;
-                color: #16a34a;
+                padding: 6px 12px;
+                background: linear-gradient(135deg, #ecfccb 0%, #d9f99d 100%);
+                border: 1.5px solid #bef264;
+                border-radius: 10px;
+                font-size: 11px;
+                font-weight: 800;
+                color: #365314;
+                box-shadow: 0 2px 4px rgba(132, 204, 22, 0.15);
+                letter-spacing: 0.3px;
               ">
                 ${getPriceLevelSymbols(placeDetails.priceLevel)}
               </span>
@@ -517,129 +684,171 @@ export default function MapView({
           </div>
         </div>
         
-        <!-- Body -->
-        <div style="padding: 16px;">
-          <!-- Rating -->
+        <!-- Main content with improved spacing -->
+        <div style="padding: 20px;">
+          <!-- Enhanced rating display -->
           ${place.rating ? `
             <div style="
               display: flex;
               align-items: center;
-              gap: 10px;
-              margin-bottom: 14px;
-              padding: 12px;
+              gap: 12px;
+              margin-bottom: 16px;
+              padding: 14px 16px;
               background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-              border-radius: 12px;
-              border: 1.5px solid #fbbf2435;
+              border-radius: 14px;
+              border: 2px solid #fbbf24;
+              box-shadow: 0 4px 12px rgba(251, 191, 36, 0.15);
             ">
-              <div style="display: flex; align-items: center; gap: 4px;">
+              <div style="display: flex; align-items: center; gap: 3px;">
                 ${generateStars(place.rating)}
               </div>
               <span style="
-                font-weight: 800;
-                font-size: 16px;
-                color: #92400e;
-                letter-spacing: -0.2px;
+                font-weight: 900;
+                font-size: 18px;
+                color: #78350f;
+                letter-spacing: -0.3px;
               ">${place.rating.toFixed(1)}</span>
               <span style="
-                font-size: 13px;
+                font-size: 12px;
                 color: #92400e;
-                opacity: 0.75;
-                font-weight: 600;
+                opacity: 0.85;
+                font-weight: 700;
               ">(${place.userRatingCount?.toLocaleString() || 0})</span>
+              ${topRatedBadge}
             </div>
           ` : ''}
           
-          <!-- Info grid -->
-          <div style="
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 10px;
-            margin-bottom: 14px;
-          ">
-            ${distance > 0 ? `
+          <!-- Distance card with modern design -->
+          ${distance > 0 ? `
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: 14px;
+              padding: 14px 16px;
+              background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+              border-radius: 14px;
+              border: 2px solid #e2e8f0;
+              margin-bottom: 16px;
+              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            ">
               <div style="
+                width: 40px;
+                height: 40px;
                 display: flex;
                 align-items: center;
-                gap: 10px;
-                padding: 12px;
-                background: #f8fafc;
-                border-radius: 10px;
-                border: 1.5px solid #e2e8f0;
+                justify-content: center;
+                background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+                border-radius: 12px;
+                flex-shrink: 0;
               ">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5">
                   <path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"></path>
                   <path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1 -2.827 0l-4.244 -4.243a8 8 0 1 1 11.314 0z"></path>
                 </svg>
-                <div>
-                  <div style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Distance</div>
-                  <div style="font-size: 15px; color: #0f172a; font-weight: 800; letter-spacing: -0.2px;">${formatDistance(distance)}</div>
-                </div>
               </div>
-            ` : ''}
-          </div>
+              <div style="flex: 1;">
+                <div style="
+                  font-size: 10px; 
+                  color: #64748b; 
+                  font-weight: 700; 
+                  text-transform: uppercase; 
+                  letter-spacing: 0.6px; 
+                  margin-bottom: 4px;
+                ">Distance</div>
+                <div style="
+                  font-size: 17px; 
+                  color: #0f172a; 
+                  font-weight: 900; 
+                  letter-spacing: -0.3px;
+                ">${formatDistance(distance)} away</div>
+              </div>
+            </div>
+          ` : ''}
           
-          <!-- Address -->
+          <!-- Address with improved readability -->
           ${place.formattedAddress ? `
             <div style="
               display: flex;
               align-items: start;
-              gap: 10px;
-              padding: 12px;
-              background: #f1f5f9;
-              border-radius: 10px;
-              margin-bottom: 14px;
-              border: 1.5px solid #cbd5e1;
+              gap: 12px;
+              padding: 14px 16px;
+              background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+              border-radius: 14px;
+              margin-bottom: 18px;
+              border: 2px solid #e5e7eb;
+              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
             ">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2.5" style="flex-shrink: 0; margin-top: 2px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2.5" style="flex-shrink: 0; margin-top: 3px;">
                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                 <circle cx="12" cy="10" r="3"></circle>
               </svg>
               <p style="
                 margin: 0;
                 font-size: 13px;
-                color: #334155;
-                line-height: 1.5;
+                color: #374151;
+                line-height: 1.6;
                 font-weight: 500;
               ">${place.formattedAddress}</p>
             </div>
           ` : ''}
           
-          <!-- CTA Button -->
+          <!-- Enhanced CTA button with hover state -->
           <button 
             onclick="window.dispatchEvent(new CustomEvent('place-select', { detail: '${place.id}' }))"
             style="
               width: 100%;
-              padding: 13px 20px;
+              padding: 15px 24px;
               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
               color: white;
               border: none;
-              border-radius: 12px;
+              border-radius: 14px;
               font-weight: 800;
               font-size: 15px;
               cursor: pointer;
-              transition: all 0.2s;
-              box-shadow: 0 8px 16px -4px rgba(102, 126, 234, 0.4), 0 0 0 1px rgba(102, 126, 234, 0.1);
+              transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+              box-shadow: 0 10px 20px -5px rgba(102, 126, 234, 0.4), 
+                          0 0 0 1px rgba(102, 126, 234, 0.1),
+                          inset 0 1px 2px rgba(255, 255, 255, 0.2);
               display: flex;
               align-items: center;
               justify-content: center;
               gap: 10px;
-              letter-spacing: 0.2px;
+              letter-spacing: 0.3px;
+              position: relative;
+              overflow: hidden;
             "
-            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 20px -4px rgba(102, 126, 234, 0.5)'"
-            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 16px -4px rgba(102, 126, 234, 0.4)'"
+            onmouseover="
+              this.style.transform='translateY(-2px) scale(1.01)'; 
+              this.style.boxShadow='0 16px 28px -8px rgba(102, 126, 234, 0.55), 0 0 0 1px rgba(102, 126, 234, 0.15)';
+            "
+            onmouseout="
+              this.style.transform='translateY(0) scale(1)'; 
+              this.style.boxShadow='0 10px 20px -5px rgba(102, 126, 234, 0.4), 0 0 0 1px rgba(102, 126, 234, 0.1)';
+            "
           >
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <circle cx="12" cy="12" r="10"></circle>
-              <path d="M12 16v-4"></path>
-              <path d="M12 8h.01"></path>
+              <path d="M12 8v8"></path>
+              <path d="M8 12h8"></path>
             </svg>
-            View Full Details
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <span>View Full Details</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <path d="M5 12h14"></path>
               <path d="m12 5 7 7-7 7"></path>
             </svg>
           </button>
         </div>
+        
+        <!-- Decorative gradient border wrapping bottom edges -->
+        <div style="
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 6px;
+          background: linear-gradient(90deg, transparent 0%, ${markerColor}15 10%, ${markerColor}25 50%, ${markerColor}15 90%, transparent 100%);
+          z-index: 10;
+        "></div>
       </div>
     `;
   };
@@ -683,9 +892,16 @@ export default function MapView({
       setIsModalOpen(true);
     };
 
+    const handleCloseOverlay = () => {
+      setOverlayPlace(null);
+    };
+
     window.addEventListener('place-select' as any, handlePlaceSelect);
+    window.addEventListener('close-overlay' as any, handleCloseOverlay);
+    
     return () => {
       window.removeEventListener('place-select' as any, handlePlaceSelect);
+      window.removeEventListener('close-overlay' as any, handleCloseOverlay);
     };
   }, []);
 
@@ -787,12 +1003,10 @@ export default function MapView({
                           'landmark', 'stadium', 'sports_complex', 'golf_course'
                         ]);
                         
-                        // Always show outdoor/public spaces
                         if (p.types?.some(type => alwaysAccessibleTypes.has(type))) {
                           return true;
                         }
                         
-                        // For businesses, check if open
                         if (details.currentOpeningHours !== undefined) {
                           if (details.currentOpeningHours?.openNow === true) return true;
                           if (details.currentOpeningHours?.openNow === false) return false;
@@ -802,7 +1016,6 @@ export default function MapView({
                           if (details.regularOpeningHours?.openNow === false) return false;
                         }
                         
-                        // If no hours data, show it (permissive)
                         return true;
                       }).length} available
                     </span>
