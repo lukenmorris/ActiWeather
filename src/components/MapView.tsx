@@ -4,14 +4,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader } from '@googlemaps/js-api-loader';
 import type { GooglePlace, Coordinates, WeatherData } from '@/types';
-import { calculateWeatherSuitability } from '@/lib/geoUtils';
+import { calculateWeatherSuitability, formatDistance } from '@/lib/geoUtils';
 import { getCategoryForPlace } from '@/lib/activityMapper';
 import ActivityDetailModal from './ActivityDetailModal';
 import {
   Map as MapIcon, Layers, Maximize2, Minimize2, Navigation2,
   MapPin, Star, TrendingUp, X, ChevronRight, Sparkles,
   Utensils, Coffee, ShoppingBag, TreePine, Gamepad2, Book,
-  Palette, Heart, Flame, Zap, Shield
+  Palette, Heart, Flame, Zap, Shield, Info, Award, Clock,
+  DollarSign, Users, Eye
 } from 'lucide-react';
 
 interface MapViewProps {
@@ -21,7 +22,19 @@ interface MapViewProps {
   isDarkTheme?: boolean;
 }
 
-// Score-based marker colors
+// Category icon mapping
+const categoryIcons: Record<string, React.ComponentType<any>> = {
+  'Food & Drink': Utensils,
+  'Shopping': ShoppingBag,
+  'Outdoor Active': TreePine,
+  'Outdoor Relax': Coffee,
+  'Indoor Active': Gamepad2,
+  'Indoor Relax': Book,
+  'Culture & Entertainment': Palette,
+  'Other': Sparkles,
+};
+
+// Score-based marker colors with enhanced palette
 const getMarkerColor = (score: number): string => {
   if (score >= 85) return '#f97316'; // orange-500 (perfect)
   if (score >= 75) return '#eab308'; // yellow-500 (excellent)
@@ -30,12 +43,66 @@ const getMarkerColor = (score: number): string => {
   return '#9ca3af'; // gray-400 (fair)
 };
 
+const getScoreGradient = (score: number): string => {
+  if (score >= 85) return 'from-orange-400 to-red-500';
+  if (score >= 75) return 'from-yellow-400 to-orange-400';
+  if (score >= 65) return 'from-green-400 to-emerald-500';
+  if (score >= 55) return 'from-blue-400 to-cyan-500';
+  return 'from-gray-400 to-gray-500';
+};
+
 const getScoreLabel = (score: number): string => {
-  if (score >= 85) return 'Perfect';
+  if (score >= 85) return 'Perfect Match';
   if (score >= 75) return 'Excellent';
   if (score >= 65) return 'Great';
   if (score >= 55) return 'Good';
   return 'Fair';
+};
+
+const getScoreIcon = (score: number): React.ComponentType<any> => {
+  if (score >= 85) return Flame;
+  if (score >= 75) return Zap;
+  if (score >= 65) return Award;
+  if (score >= 55) return TrendingUp;
+  return Shield;
+};
+
+// Price level indicator
+const PriceIndicator: React.FC<{ priceLevel?: string }> = ({ priceLevel }) => {
+  const getCount = () => {
+    switch (priceLevel) {
+      case 'PRICE_LEVEL_FREE': return 0;
+      case 'PRICE_LEVEL_INEXPENSIVE': return 1;
+      case 'PRICE_LEVEL_MODERATE': return 2;
+      case 'PRICE_LEVEL_EXPENSIVE': return 3;
+      case 'PRICE_LEVEL_VERY_EXPENSIVE': return 4;
+      default: return 0;
+    }
+  };
+  
+  const count = getCount();
+  if (count === 0 && priceLevel !== 'PRICE_LEVEL_FREE') return null;
+  
+  return (
+    <div className="flex items-center gap-1">
+      {priceLevel === 'PRICE_LEVEL_FREE' ? (
+        <span className="px-2 py-0.5 bg-green-500/20 text-green-600 rounded-full text-xs font-bold">
+          FREE
+        </span>
+      ) : (
+        <div className="flex items-center">
+          {[...Array(4)].map((_, i) => (
+            <DollarSign
+              key={i}
+              className={`w-3 h-3 ${
+                i < count ? 'text-green-500' : 'text-gray-400/30'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default function MapView({
@@ -169,6 +236,7 @@ export default function MapView({
     }
 
     console.log('🎯 Starting marker update for', places.length, 'places');
+    console.log('Sample place data:', places[0]); // Debug: see structure
 
     const updateMarkers = () => {
       try {
@@ -181,9 +249,88 @@ export default function MapView({
         });
         markersRef.current = [];
 
-        // Create markers for places
+        // Place types that are typically always accessible (no opening hours needed)
+        const alwaysAccessibleTypes = new Set([
+          'park',
+          'playground',
+          'hiking_area',
+          'beach',
+          'viewpoint',
+          'tourist_attraction',
+          'natural_feature',
+          'campground',
+          'dog_park',
+          'garden',
+          'plaza',
+          'picnic_ground',
+          'marina',
+          'trail',
+          'monument',
+          'landmark',
+          'stadium',
+          'sports_complex',
+          'golf_course'
+        ]);
+
+        // Filter to only show open places or always-accessible venues
+        const openPlaces = places.filter(place => {
+          const placeDetails = place as any;
+          
+          // Debug: log place info
+          console.log(`Checking place: ${place.displayName?.text}`);
+          console.log(`  Types:`, place.types);
+          console.log(`  currentOpeningHours:`, placeDetails.currentOpeningHours);
+          console.log(`  regularOpeningHours:`, placeDetails.regularOpeningHours);
+          
+          // Check if this is an always-accessible type (like parks, outdoor spaces)
+          const isAlwaysAccessible = place.types?.some(type => 
+            alwaysAccessibleTypes.has(type)
+          );
+          
+          if (isAlwaysAccessible) {
+            const accessibleType = place.types?.find(t => alwaysAccessibleTypes.has(t));
+            console.log(`  ✅ Always accessible: ${accessibleType}`);
+            return true; // Always show parks, outdoor spaces, etc.
+          }
+          
+          // For businesses with hours, check if they're open
+          // Check currentOpeningHours first (most accurate for "right now")
+          if (placeDetails.currentOpeningHours !== undefined) {
+            const isOpen = placeDetails.currentOpeningHours?.openNow;
+            console.log(`  Current hours - openNow:`, isOpen);
+            if (isOpen === true) {
+              console.log(`  ✅ Currently open`);
+              return true;
+            } else if (isOpen === false) {
+              console.log(`  ❌ Currently closed`);
+              return false;
+            }
+          }
+          
+          // Fallback to regularOpeningHours if available
+          if (placeDetails.regularOpeningHours !== undefined) {
+            const isOpen = placeDetails.regularOpeningHours?.openNow;
+            console.log(`  Regular hours - openNow:`, isOpen);
+            if (isOpen === true) {
+              console.log(`  ✅ Open (regular hours)`);
+              return true;
+            } else if (isOpen === false) {
+              console.log(`  ❌ Closed (regular hours)`);
+              return false;
+            }
+          }
+          
+          // If no opening hours data for a non-outdoor venue, be permissive and show it
+          // (Better to show than hide - user can see "no hours" in popup)
+          console.log(`  ⚠️ No opening hours data - showing anyway`);
+          return true;
+        });
+
+        console.log(`✅ Filtered to ${openPlaces.length} available places (from ${places.length} total)`);
+
+        // Create markers for open places only
         let createdCount = 0;
-        places.forEach((place, index) => {
+        openPlaces.forEach((place, index) => {
           if (!place.location) {
             console.log(`⚠️ Place ${index} missing location`, place.displayName?.text);
             return;
@@ -217,7 +364,7 @@ export default function MapView({
           marker.addListener('click', () => {
             // Show info window
             if (infoWindowRef.current) {
-              const content = createInfoWindowContent(place, score, categoryName);
+              const content = createInfoWindowContent(place, score, categoryName, distance);
               infoWindowRef.current.setContent(content);
               infoWindowRef.current.open(googleMapRef.current!, marker);
             }
@@ -237,66 +384,296 @@ export default function MapView({
     updateMarkers();
   }, [places, weatherData, isMapReady]);
 
-  // Create info window content
-  const createInfoWindowContent = (place: GooglePlace, score: number, category: string): string => {
+  // Create enhanced info window content
+  const createInfoWindowContent = (
+    place: GooglePlace, 
+    score: number, 
+    category: string,
+    distance: number
+  ): string => {
+    const ScoreIcon = getScoreIcon(score);
+    const CategoryIcon = categoryIcons[category] || Sparkles;
+    const gradient = getScoreGradient(score);
+    const scoreLabel = getScoreLabel(score);
+    const placeDetails = place as any;
+    
     return `
-      <div style="padding: 12px; max-width: 280px; font-family: system-ui, -apple-system, sans-serif;">
-        <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-          <div style="flex: 1;">
-            <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600; color: #111827;">
-              ${place.displayName?.text || 'Unknown Place'}
-            </h3>
-            <p style="margin: 0; font-size: 12px; color: #6b7280;">
+      <div class="map-info-window" style="
+        width: 320px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #ffffff;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05);
+      ">
+        <!-- Header with gradient -->
+        <div style="
+          background: linear-gradient(135deg, ${getMarkerColor(score)}12 0%, ${getMarkerColor(score)}06 100%);
+          padding: 16px;
+          border-bottom: 2px solid ${getMarkerColor(score)}35;
+        ">
+          <!-- Score badge -->
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+          ">
+            <div style="
+              display: inline-flex;
+              align-items: center;
+              gap: 7px;
+              padding: 7px 14px;
+              background: white;
+              border-radius: 20px;
+              font-size: 12px;
+              font-weight: 700;
+              color: #4b5563;
+              text-transform: uppercase;
+              letter-spacing: 0.6px;
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+            ">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${getMarkerColor(score)}" stroke-width="2.5">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
               ${category}
-            </p>
+            </div>
+            
+            <div style="
+              display: flex;
+              flex-direction: column;
+              align-items: flex-end;
+              gap: 5px;
+              padding: 10px 16px;
+              background: ${getMarkerColor(score)}12;
+              border-radius: 12px;
+              border: 2px solid ${getMarkerColor(score)};
+            ">
+              <div style="
+                font-size: 28px;
+                font-weight: 900;
+                color: ${getMarkerColor(score)};
+                line-height: 1;
+                letter-spacing: -0.8px;
+              ">${score}</div>
+              <div style="
+                font-size: 10px;
+                font-weight: 800;
+                color: ${getMarkerColor(score)};
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+              ">${scoreLabel}</div>
+            </div>
           </div>
-          <div style="text-align: right;">
-            <div style="font-size: 20px; font-weight: bold; color: ${getMarkerColor(score)};">
-              ${score}
-            </div>
-            <div style="font-size: 10px; color: #6b7280; text-transform: uppercase;">
-              ${getScoreLabel(score)}
-            </div>
+          
+          <!-- Place name -->
+          <h3 style="
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+            color: #111827;
+            line-height: 1.3;
+            margin-bottom: 10px;
+            letter-spacing: -0.2px;
+          ">${place.displayName?.text || 'Unknown Place'}</h3>
+          
+          <!-- Status and price -->
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            ${place.currentOpeningHours?.openNow !== false ? `
+              <span style="
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 14px;
+                background: #10b98120;
+                color: #047857;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: 700;
+                border: 1.5px solid #10b98135;
+              ">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="#10b981">
+                  <circle cx="12" cy="12" r="12"/>
+                </svg>
+                Open Now
+              </span>
+            ` : ''}
+            ${placeDetails.priceLevel ? `
+              <span style="
+                display: inline-flex;
+                align-items: center;
+                padding: 6px 14px;
+                background: #f0fdf4;
+                border: 1.5px solid #86efac;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: 700;
+                color: #16a34a;
+              ">
+                ${getPriceLevelSymbols(placeDetails.priceLevel)}
+              </span>
+            ` : ''}
           </div>
         </div>
         
-        ${place.rating ? `
-          <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
-            <span style="color: #facc15;">★</span>
-            <span style="font-weight: 600; font-size: 14px;">${place.rating.toFixed(1)}</span>
-            <span style="font-size: 12px; color: #6b7280;">
-              (${place.userRatingCount?.toLocaleString() || 0} reviews)
-            </span>
+        <!-- Body -->
+        <div style="padding: 16px;">
+          <!-- Rating -->
+          ${place.rating ? `
+            <div style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              margin-bottom: 14px;
+              padding: 12px;
+              background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+              border-radius: 12px;
+              border: 1.5px solid #fbbf2435;
+            ">
+              <div style="display: flex; align-items: center; gap: 4px;">
+                ${generateStars(place.rating)}
+              </div>
+              <span style="
+                font-weight: 800;
+                font-size: 16px;
+                color: #92400e;
+                letter-spacing: -0.2px;
+              ">${place.rating.toFixed(1)}</span>
+              <span style="
+                font-size: 13px;
+                color: #92400e;
+                opacity: 0.75;
+                font-weight: 600;
+              ">(${place.userRatingCount?.toLocaleString() || 0})</span>
+            </div>
+          ` : ''}
+          
+          <!-- Info grid -->
+          <div style="
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-bottom: 14px;
+          ">
+            ${distance > 0 ? `
+              <div style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px;
+                background: #f8fafc;
+                border-radius: 10px;
+                border: 1.5px solid #e2e8f0;
+              ">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5">
+                  <path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"></path>
+                  <path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1 -2.827 0l-4.244 -4.243a8 8 0 1 1 11.314 0z"></path>
+                </svg>
+                <div>
+                  <div style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px;">Distance</div>
+                  <div style="font-size: 15px; color: #0f172a; font-weight: 800; letter-spacing: -0.2px;">${formatDistance(distance)}</div>
+                </div>
+              </div>
+            ` : ''}
           </div>
-        ` : ''}
-        
-        ${place.formattedAddress ? `
-          <p style="margin: 0 0 12px 0; font-size: 12px; color: #6b7280; line-height: 1.4;">
-            ${place.formattedAddress}
-          </p>
-        ` : ''}
-        
-        <button 
-          onclick="window.dispatchEvent(new CustomEvent('place-select', { detail: '${place.id}' }))"
-          style="
-            width: 100%;
-            padding: 8px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: transform 0.2s;
-          "
-          onmouseover="this.style.transform='scale(1.02)'"
-          onmouseout="this.style.transform='scale(1)'"
-        >
-          View Details →
-        </button>
+          
+          <!-- Address -->
+          ${place.formattedAddress ? `
+            <div style="
+              display: flex;
+              align-items: start;
+              gap: 10px;
+              padding: 12px;
+              background: #f1f5f9;
+              border-radius: 10px;
+              margin-bottom: 14px;
+              border: 1.5px solid #cbd5e1;
+            ">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2.5" style="flex-shrink: 0; margin-top: 2px;">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+              <p style="
+                margin: 0;
+                font-size: 13px;
+                color: #334155;
+                line-height: 1.5;
+                font-weight: 500;
+              ">${place.formattedAddress}</p>
+            </div>
+          ` : ''}
+          
+          <!-- CTA Button -->
+          <button 
+            onclick="window.dispatchEvent(new CustomEvent('place-select', { detail: '${place.id}' }))"
+            style="
+              width: 100%;
+              padding: 13px 20px;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              border: none;
+              border-radius: 12px;
+              font-weight: 800;
+              font-size: 15px;
+              cursor: pointer;
+              transition: all 0.2s;
+              box-shadow: 0 8px 16px -4px rgba(102, 126, 234, 0.4), 0 0 0 1px rgba(102, 126, 234, 0.1);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 10px;
+              letter-spacing: 0.2px;
+            "
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 20px -4px rgba(102, 126, 234, 0.5)'"
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 16px -4px rgba(102, 126, 234, 0.4)'"
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 16v-4"></path>
+              <path d="M12 8h.01"></path>
+            </svg>
+            View Full Details
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M5 12h14"></path>
+              <path d="m12 5 7 7-7 7"></path>
+            </svg>
+          </button>
+        </div>
       </div>
     `;
+  };
+
+  // Helper functions for info window
+  const generateStars = (rating: number): string => {
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+    let starsHtml = '';
+    
+    for (let i = 0; i < 5; i++) {
+      if (i < fullStars) {
+        starsHtml += `<svg width="16" height="16" viewBox="0 0 24 24" fill="#fbbf24" stroke="#fbbf24" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`;
+      } else if (i === fullStars && hasHalfStar) {
+        starsHtml += `<svg width="16" height="16" viewBox="0 0 24 24" fill="url(#halfGrad)" stroke="#fbbf24" stroke-width="2"><defs><linearGradient id="halfGrad"><stop offset="50%" stop-color="#fbbf24"/><stop offset="50%" stop-color="transparent"/></linearGradient></defs><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`;
+      } else {
+        starsHtml += `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`;
+      }
+    }
+    
+    return starsHtml;
+  };
+
+  const getPriceLevelSymbols = (priceLevel: string): string => {
+    const count = {
+      'PRICE_LEVEL_FREE': 0,
+      'PRICE_LEVEL_INEXPENSIVE': 1,
+      'PRICE_LEVEL_MODERATE': 2,
+      'PRICE_LEVEL_EXPENSIVE': 3,
+      'PRICE_LEVEL_VERY_EXPENSIVE': 4,
+    }[priceLevel] || 0;
+    
+    if (count === 0) return 'FREE';
+    return '$'.repeat(count);
   };
 
   // Listen for place selection from info window
@@ -398,7 +775,38 @@ export default function MapView({
                 <div className={`px-4 py-2 rounded-xl font-medium text-sm shadow-lg backdrop-blur-md pointer-events-auto ${
                   isDarkTheme ? 'bg-gray-900/80 text-white' : 'bg-white/80 text-gray-900'
                 }`}>
-                  {places.length} places nearby
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-4 h-4" />
+                    <span>
+                      {places.filter(p => {
+                        const details = p as any;
+                        const alwaysAccessibleTypes = new Set([
+                          'park', 'playground', 'hiking_area', 'beach', 'viewpoint',
+                          'tourist_attraction', 'natural_feature', 'campground', 'dog_park',
+                          'garden', 'plaza', 'picnic_ground', 'marina', 'trail', 'monument', 
+                          'landmark', 'stadium', 'sports_complex', 'golf_course'
+                        ]);
+                        
+                        // Always show outdoor/public spaces
+                        if (p.types?.some(type => alwaysAccessibleTypes.has(type))) {
+                          return true;
+                        }
+                        
+                        // For businesses, check if open
+                        if (details.currentOpeningHours !== undefined) {
+                          if (details.currentOpeningHours?.openNow === true) return true;
+                          if (details.currentOpeningHours?.openNow === false) return false;
+                        }
+                        if (details.regularOpeningHours !== undefined) {
+                          if (details.regularOpeningHours?.openNow === true) return true;
+                          if (details.regularOpeningHours?.openNow === false) return false;
+                        }
+                        
+                        // If no hours data, show it (permissive)
+                        return true;
+                      }).length} available
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -435,31 +843,42 @@ export default function MapView({
                 </button>
               </div>
 
-              {/* Legend */}
-              <div className={`absolute bottom-4 left-4 p-4 rounded-xl shadow-lg backdrop-blur-md z-10 ${
-                isDarkTheme ? 'bg-gray-900/80 text-white' : 'bg-white/80 text-gray-900'
+              {/* Enhanced Legend */}
+              <div className={`absolute bottom-4 left-4 rounded-xl shadow-lg backdrop-blur-md z-10 overflow-hidden ${
+                isDarkTheme ? 'bg-gray-900/90 text-white' : 'bg-white/90 text-gray-900'
               }`}>
-                <h4 className="text-xs font-semibold mb-3 opacity-60 uppercase tracking-wide">
-                  Match Score
-                </h4>
-                <div className="space-y-2">
-                  {[
-                    { label: 'Perfect', color: '#f97316', min: 85 },
-                    { label: 'Excellent', color: '#eab308', min: 75 },
-                    { label: 'Great', color: '#22c55e', min: 65 },
-                    { label: 'Good', color: '#3b82f6', min: 55 },
-                    { label: 'Fair', color: '#9ca3af', min: 0 },
-                  ].map((item) => (
-                    <div key={item.label} className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className="text-xs font-medium">
-                        {item.label} ({item.min}+)
-                      </span>
-                    </div>
-                  ))}
+                <div className="p-4">
+                  <h4 className="text-xs font-bold mb-3 opacity-60 uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-3 h-3" />
+                    Match Score
+                  </h4>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Perfect', color: '#f97316', min: 85, icon: Flame },
+                      { label: 'Excellent', color: '#eab308', min: 75, icon: Zap },
+                      { label: 'Great', color: '#22c55e', min: 65, icon: Award },
+                      { label: 'Good', color: '#3b82f6', min: 55, icon: TrendingUp },
+                      { label: 'Fair', color: '#9ca3af', min: 0, icon: Shield },
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <div key={item.label} className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full flex items-center justify-center"
+                            style={{ backgroundColor: item.color }}
+                          >
+                            <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                          </div>
+                          <span className="text-xs font-semibold flex-1">
+                            {item.label}
+                          </span>
+                          <span className="text-xs opacity-60 font-medium">
+                            {item.min}+
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
