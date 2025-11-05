@@ -53,6 +53,7 @@ export default function Home() {
 
   // View State - NEW
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
   // Preferences
   const { preferences, getEffectivePlaceTypes, isPlaceTypeAllowed, getPersonalizedScore } = useUserPreferences();
@@ -323,41 +324,51 @@ export default function Home() {
   // --- Component Return ---
   return (
     <main className={`min-h-screen ${getThemeClasses(theme)} transition-all duration-1000 ease-in-out relative overflow-hidden`}>
-      {/* Settings Button */}
-      <button
-        onClick={() => setShowPreferences(true)}
-        className={`fixed top-4 right-4 z-40 p-3 rounded-full backdrop-blur-md transition-all duration-200 ${
-          isDarkTheme 
-            ? 'bg-white/10 hover:bg-white/20 text-white' 
-            : 'bg-black/10 hover:bg-black/20 text-gray-900'
-        } shadow-lg hover:shadow-xl transform hover:scale-105`}
-        aria-label="Open preferences"
-      >
-        <Settings className="w-6 h-6" />
-      </button>
-
-      {/* View Toggle Button - NEW */}
-      {!isPageLoading && !displayError && weatherData && places.length > 0 && (
+      {/* Map button - show in list view and not when map is fullscreen */}
+      {viewMode === 'list' && !isMapFullscreen && !isPageLoading && !displayError && weatherData && places.length > 0 && (
         <button
-          onClick={() => setViewMode(prev => prev === 'list' ? 'map' : 'list')}
-          className={`fixed top-4 right-20 z-40 flex items-center gap-2 px-4 py-3 rounded-full backdrop-blur-md transition-all duration-200 ${
+          onClick={() => setViewMode('map')}
+          className={`fixed top-4 right-[68px] z-40 flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-md transition-all duration-200 ${
             isDarkTheme 
               ? 'bg-white/10 hover:bg-white/20 text-white' 
               : 'bg-black/10 hover:bg-black/20 text-gray-900'
           } shadow-lg hover:shadow-xl transform hover:scale-105`}
-          aria-label={`Switch to ${viewMode === 'list' ? 'map' : 'list'} view`}
+          aria-label="Switch to map view"
         >
-          {viewMode === 'list' ? (
-            <>
-              <Map className="w-5 h-5" />
-              <span className="text-sm font-medium">Map</span>
-            </>
-          ) : (
-            <>
-              <List className="w-5 h-5" />
-              <span className="text-sm font-medium">List</span>
-            </>
-          )}
+          <Map className="w-4 h-4" />
+          <span className="text-sm font-medium">Map</span>
+        </button>
+      )}
+
+      {/* List button - show in map view and not when map is fullscreen */}
+      {viewMode === 'map' && !isMapFullscreen && !isPageLoading && !displayError && weatherData && places.length > 0 && (
+        <button
+          onClick={() => setViewMode('list')}
+          className={`fixed top-4 right-[68px] z-40 flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-md transition-all duration-200 ${
+            isDarkTheme 
+              ? 'bg-white/10 hover:bg-white/20 text-white' 
+              : 'bg-black/10 hover:bg-black/20 text-gray-900'
+          } shadow-lg hover:shadow-xl transform hover:scale-105`}
+          aria-label="Switch to list view"
+        >
+          <List className="w-4 h-4" />
+          <span className="text-sm font-medium">List</span>
+        </button>
+      )}
+
+      {/* Settings Button - hide when map is fullscreen */}
+      {!isMapFullscreen && (
+        <button
+          onClick={() => setShowPreferences(true)}
+          className={`fixed top-4 right-4 z-40 p-2.5 rounded-xl backdrop-blur-md transition-all duration-200 flex items-center justify-center ${
+            isDarkTheme 
+              ? 'bg-white/10 hover:bg-white/20 text-white' 
+              : 'bg-black/10 hover:bg-black/20 text-gray-900'
+          } shadow-lg hover:shadow-xl transform hover:scale-105`}
+          style={{ height: '40px', width: '40px' }}
+          aria-label="Open preferences"
+        >
+          <Settings className="w-4 h-4" />
         </button>
       )}
 
@@ -512,6 +523,9 @@ export default function Home() {
                 userCoordinates={geoCoordinates}
                 weatherData={weatherData}
                 isDarkTheme={isDarkTheme}
+                onViewModeChange={() => setViewMode('list')}
+                onOpenPreferences={() => setShowPreferences(true)}
+                onFullscreenChange={setIsMapFullscreen}
               />
             )}
           </div>

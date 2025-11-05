@@ -12,7 +12,7 @@ import {
   MapPin, Star, TrendingUp, X, ChevronRight, Sparkles,
   Utensils, Coffee, ShoppingBag, TreePine, Gamepad2, Book,
   Palette, Heart, Flame, Zap, Shield, Info, Award, Clock,
-  DollarSign, Users, Eye, EyeOff
+  DollarSign, Users, Eye, EyeOff, Settings, List
 } from 'lucide-react';
 
 interface MapViewProps {
@@ -20,6 +20,9 @@ interface MapViewProps {
   userCoordinates: Coordinates | null;
   weatherData: WeatherData | null;
   isDarkTheme?: boolean;
+  onViewModeChange?: () => void; // Callback to switch back to list view
+  onOpenPreferences?: () => void; // Callback to open preferences
+  onFullscreenChange?: (isFullscreen: boolean) => void; // Callback to notify parent of fullscreen state
 }
 
 // Category icon mapping
@@ -110,6 +113,9 @@ export default function MapView({
   userCoordinates,
   weatherData,
   isDarkTheme = false,
+  onViewModeChange,
+  onOpenPreferences,
+  onFullscreenChange,
 }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
@@ -918,8 +924,12 @@ export default function MapView({
 
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => {
-    setIsFullscreen(prev => !prev);
-  }, []);
+    setIsFullscreen(prev => {
+      const newState = !prev;
+      onFullscreenChange?.(newState);
+      return newState;
+    });
+  }, [onFullscreenChange]);
 
   // Change map style
   const handleMapStyleChange = useCallback((style: 'roadmap' | 'terrain' | 'satellite') => {
@@ -934,6 +944,32 @@ export default function MapView({
     : 'relative w-full rounded-2xl overflow-hidden border border-white/20 shadow-2xl';
 
   const heightClasses = isFullscreen ? 'h-screen' : 'h-[600px]';
+
+  // Count available places
+  const availableCount = places.filter(p => {
+    const details = p as any;
+    const alwaysAccessibleTypes = new Set([
+      'park', 'playground', 'hiking_area', 'beach', 'viewpoint',
+      'tourist_attraction', 'natural_feature', 'campground', 'dog_park',
+      'garden', 'plaza', 'picnic_ground', 'marina', 'trail', 'monument', 
+      'landmark', 'stadium', 'sports_complex', 'golf_course'
+    ]);
+    
+    if (p.types?.some(type => alwaysAccessibleTypes.has(type))) {
+      return true;
+    }
+    
+    if (details.currentOpeningHours !== undefined) {
+      if (details.currentOpeningHours?.openNow === true) return true;
+      if (details.currentOpeningHours?.openNow === false) return false;
+    }
+    if (details.regularOpeningHours !== undefined) {
+      if (details.regularOpeningHours?.openNow === true) return true;
+      if (details.regularOpeningHours?.openNow === false) return false;
+    }
+    
+    return true;
+  }).length;
 
   return (
     <>
@@ -986,42 +1022,45 @@ export default function MapView({
                     </button>
                   ))}
                 </div>
-
-                {/* Info Badge */}
-                <div className={`px-4 py-2 rounded-xl font-medium text-sm shadow-lg backdrop-blur-md pointer-events-auto ${
-                  isDarkTheme ? 'bg-gray-900/80 text-white' : 'bg-white/80 text-gray-900'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4" />
-                    <span>
-                      {places.filter(p => {
-                        const details = p as any;
-                        const alwaysAccessibleTypes = new Set([
-                          'park', 'playground', 'hiking_area', 'beach', 'viewpoint',
-                          'tourist_attraction', 'natural_feature', 'campground', 'dog_park',
-                          'garden', 'plaza', 'picnic_ground', 'marina', 'trail', 'monument', 
-                          'landmark', 'stadium', 'sports_complex', 'golf_course'
-                        ]);
-                        
-                        if (p.types?.some(type => alwaysAccessibleTypes.has(type))) {
-                          return true;
-                        }
-                        
-                        if (details.currentOpeningHours !== undefined) {
-                          if (details.currentOpeningHours?.openNow === true) return true;
-                          if (details.currentOpeningHours?.openNow === false) return false;
-                        }
-                        if (details.regularOpeningHours !== undefined) {
-                          if (details.regularOpeningHours?.openNow === true) return true;
-                          if (details.regularOpeningHours?.openNow === false) return false;
-                        }
-                        
-                        return true;
-                      }).length} available
-                    </span>
-                  </div>
-                </div>
               </div>
+
+              {/* Top Right Button Group - ONLY IN FULLSCREEN */}
+              {isFullscreen && (
+                <div className="absolute top-4 right-4 flex flex-col gap-2 pointer-events-auto z-10">
+                  <div className="flex gap-2">
+                    {/* List Button */}
+                    {onViewModeChange && (
+                      <button
+                        onClick={onViewModeChange}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm shadow-lg backdrop-blur-md bg-gray-900/80 text-white hover:bg-gray-900/90 transition-all"
+                      >
+                        <List className="w-4 h-4" />
+                        <span className="text-sm font-medium">List</span>
+                      </button>
+                    )}
+
+                    {/* Close Fullscreen Button */}
+                    <button
+                      onClick={toggleFullscreen}
+                      className="p-2.5 rounded-xl shadow-lg backdrop-blur-md bg-gray-900/80 text-white hover:bg-gray-900/90 transition-all flex items-center justify-center"
+                      style={{ height: '40px', width: '40px' }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Settings Button - below the row */}
+                  {onOpenPreferences && (
+                    <button
+                      onClick={onOpenPreferences}
+                      className="p-2.5 rounded-xl shadow-lg backdrop-blur-md bg-gray-900/80 text-white hover:bg-gray-900/90 transition-all self-end flex items-center justify-center"
+                      style={{ height: '40px', width: '40px' }}
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Bottom Right Controls */}
               <div className="absolute bottom-4 right-4 flex flex-col gap-2 pointer-events-auto z-10">
@@ -1094,20 +1133,6 @@ export default function MapView({
                   </div>
                 </div>
               </div>
-
-              {/* Close Fullscreen Button (when in fullscreen) */}
-              {isFullscreen && (
-                <button
-                  onClick={toggleFullscreen}
-                  className={`absolute top-4 right-4 p-3 rounded-xl shadow-lg backdrop-blur-md transition-all hover:scale-105 z-10 ${
-                    isDarkTheme
-                      ? 'bg-gray-900/80 text-white hover:bg-gray-900/90'
-                      : 'bg-white/80 text-gray-900 hover:bg-white/90'
-                  }`}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
             </>
           )}
         </div>
