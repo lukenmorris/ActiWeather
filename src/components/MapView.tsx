@@ -1,7 +1,7 @@
 // src/components/MapView.tsx
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Loader } from '@googlemaps/js-api-loader';
 import type { GooglePlace, Coordinates, WeatherData } from '@/types';
 import { calculateWeatherSuitability, formatDistance } from '@/lib/geoUtils';
@@ -20,9 +20,9 @@ interface MapViewProps {
   userCoordinates: Coordinates | null;
   weatherData: WeatherData | null;
   isDarkTheme?: boolean;
-  onViewModeChange?: () => void; // Callback to switch back to list view
-  onOpenPreferences?: () => void; // Callback to open preferences
-  onFullscreenChange?: (isFullscreen: boolean) => void; // Callback to notify parent of fullscreen state
+  onViewModeChange?: () => void;
+  onOpenPreferences?: () => void;
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 // Category icon mapping
@@ -135,6 +135,29 @@ export default function MapView({
   const [isMapReady, setIsMapReady] = useState(false);
   const [overlayPlace, setOverlayPlace] = useState<{place: GooglePlace, score: number, category: string, distance: number} | null>(null);
 
+  // NEW: Determine if it's nighttime based on weather data
+  const isNightTime = useMemo(() => {
+    if (!weatherData) return false;
+    const { dt, sys } = weatherData;
+    const { sunrise, sunset } = sys;
+    // It's night if current time is before sunrise or after sunset
+    return dt < sunrise || dt > sunset;
+  }, [weatherData]);
+
+  // NEW: Use night mode map ID if it's nighttime
+  const mapId = useMemo(() => {
+    return isNightTime ? 'DEMO_MAP_ID_DARK' : 'DEMO_MAP_ID';
+  }, [isNightTime]);
+
+  // NEW: Helper for UI theme classes
+  const getUIThemeClasses = useCallback(() => {
+    return isNightTime
+      ? 'bg-gray-900/80 text-white hover:bg-gray-900/90'
+      : isDarkTheme
+      ? 'bg-gray-900/80 text-white hover:bg-gray-900/90'
+      : 'bg-white/80 text-gray-900 hover:bg-white/90';
+  }, [isNightTime, isDarkTheme]);
+
   // Initialize Google Maps once
   useEffect(() => {
     let mounted = true;
@@ -172,11 +195,11 @@ export default function MapView({
 
         if (!mounted) return;
 
-        // Create map
+        // Create map with dynamic mapId based on time of day
         const map = new Map(mapRef.current, {
           center: { lat: userCoordinates.latitude, lng: userCoordinates.longitude },
           zoom: 14,
-          mapId: isDarkTheme ? 'DEMO_MAP_ID_DARK' : 'DEMO_MAP_ID',
+          mapId: mapId, // Use dynamic mapId
           disableDefaultUI: true,
           zoomControl: true,
           mapTypeControl: false,
@@ -186,7 +209,7 @@ export default function MapView({
         });
 
         googleMapRef.current = map;
-        console.log('✅ Map created');
+        console.log(`✅ Map created with ${isNightTime ? 'dark' : 'light'} theme`);
 
         // Close overlay when map is clicked
         map.addListener('click', () => {
@@ -280,7 +303,7 @@ export default function MapView({
     return () => {
       mounted = false;
     };
-  }, [userCoordinates?.latitude, userCoordinates?.longitude, isDarkTheme]);
+  }, [userCoordinates?.latitude, userCoordinates?.longitude, mapId, isNightTime]);
 
   // Update markers when places change
   useEffect(() => {
@@ -1013,9 +1036,7 @@ export default function MapView({
                       className={`px-4 py-2 rounded-xl font-medium text-sm transition-all shadow-lg backdrop-blur-md ${
                         mapStyle === style
                           ? 'bg-white text-gray-900'
-                          : isDarkTheme
-                          ? 'bg-gray-900/80 text-white hover:bg-gray-900/90'
-                          : 'bg-white/80 text-gray-900 hover:bg-white/90'
+                          : getUIThemeClasses()
                       }`}
                     >
                       {style.charAt(0).toUpperCase() + style.slice(1)}
@@ -1032,7 +1053,7 @@ export default function MapView({
                     {onViewModeChange && (
                       <button
                         onClick={onViewModeChange}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm shadow-lg backdrop-blur-md bg-gray-900/80 text-white hover:bg-gray-900/90 transition-all"
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm shadow-lg backdrop-blur-md transition-all ${getUIThemeClasses()}`}
                       >
                         <List className="w-4 h-4" />
                         <span className="text-sm font-medium">List</span>
@@ -1042,7 +1063,7 @@ export default function MapView({
                     {/* Close Fullscreen Button */}
                     <button
                       onClick={toggleFullscreen}
-                      className="p-2.5 rounded-xl shadow-lg backdrop-blur-md bg-gray-900/80 text-white hover:bg-gray-900/90 transition-all flex items-center justify-center"
+                      className={`p-2.5 rounded-xl shadow-lg backdrop-blur-md transition-all flex items-center justify-center ${getUIThemeClasses()}`}
                       style={{ height: '40px', width: '40px' }}
                     >
                       <X className="w-4 h-4" />
@@ -1053,7 +1074,7 @@ export default function MapView({
                   {onOpenPreferences && (
                     <button
                       onClick={onOpenPreferences}
-                      className="p-2.5 rounded-xl shadow-lg backdrop-blur-md bg-gray-900/80 text-white hover:bg-gray-900/90 transition-all self-end flex items-center justify-center"
+                      className={`p-2.5 rounded-xl shadow-lg backdrop-blur-md transition-all self-end flex items-center justify-center ${getUIThemeClasses()}`}
                       style={{ height: '40px', width: '40px' }}
                     >
                       <Settings className="w-4 h-4" />
@@ -1067,11 +1088,7 @@ export default function MapView({
                 {/* Recenter Button */}
                 <button
                   onClick={handleRecenter}
-                  className={`p-3 rounded-xl shadow-lg backdrop-blur-md transition-all hover:scale-105 ${
-                    isDarkTheme
-                      ? 'bg-gray-900/80 text-white hover:bg-gray-900/90'
-                      : 'bg-white/80 text-gray-900 hover:bg-white/90'
-                  }`}
+                  className={`p-3 rounded-xl shadow-lg backdrop-blur-md transition-all hover:scale-105 ${getUIThemeClasses()}`}
                   title="Recenter on your location"
                 >
                   <Navigation2 className="w-5 h-5" />
@@ -1080,11 +1097,7 @@ export default function MapView({
                 {/* Fullscreen Button */}
                 <button
                   onClick={toggleFullscreen}
-                  className={`p-3 rounded-xl shadow-lg backdrop-blur-md transition-all hover:scale-105 ${
-                    isDarkTheme
-                      ? 'bg-gray-900/80 text-white hover:bg-gray-900/90'
-                      : 'bg-white/80 text-gray-900 hover:bg-white/90'
-                  }`}
+                  className={`p-3 rounded-xl shadow-lg backdrop-blur-md transition-all hover:scale-105 ${getUIThemeClasses()}`}
                   title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                 >
                   {isFullscreen ? (
@@ -1097,7 +1110,7 @@ export default function MapView({
 
               {/* Enhanced Legend */}
               <div className={`absolute bottom-4 left-4 rounded-xl shadow-lg backdrop-blur-md z-10 overflow-hidden ${
-                isDarkTheme ? 'bg-gray-900/90 text-white' : 'bg-white/90 text-gray-900'
+                isNightTime ? 'bg-gray-900/90 text-white' : isDarkTheme ? 'bg-gray-900/90 text-white' : 'bg-white/90 text-gray-900'
               }`}>
                 <div className="p-4">
                   <h4 className="text-xs font-bold mb-3 opacity-60 uppercase tracking-wider flex items-center gap-2">

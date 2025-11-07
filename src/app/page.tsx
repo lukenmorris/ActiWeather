@@ -9,7 +9,6 @@ import ActivityList from '@/components/ActivityList';
 import PreferencesPanel from '@/components/PreferencesPanel';
 import PreferencesIndicator from '@/components/PreferencesIndicator';
 import MapView from '@/components/MapView';
-import FilterSummary from '@/components/FilterSummary';
 import ToastNotification, { useToast } from '@/components/ToastNotification';
 
 // Import Hooks and Utils
@@ -21,7 +20,6 @@ import {
   filterPlaces, 
   applyPreferenceScoring,
   getSuggestedPlaceTypes,
-  type FilterStats 
 } from '@/lib/applyPreferences';
 
 // Import Types
@@ -55,14 +53,6 @@ export default function Home() {
   const [places, setPlaces] = useState<GooglePlace[]>([]);
   const [placesLoading, setPlacesLoading] = useState<boolean>(false);
   const [placesError, setPlacesError] = useState<string | null>(null);
-  
-  // NEW: Filter stats for summary
-  const [filterStats, setFilterStats] = useState<FilterStats>({
-    total: 0,
-    passed: 0,
-    filtered: 0,
-    reasons: {}
-  });
 
   // Theme State
   const [theme, setTheme] = useState('theme-default');
@@ -357,12 +347,6 @@ export default function Home() {
             console.log('⚠️  No places fetched from API');
             setPlaces([]);
             setPlacesLoading(false);
-            setFilterStats({
-              total: 0,
-              passed: 0,
-              filtered: 0,
-              reasons: {}
-            });
             return;
           }
 
@@ -390,8 +374,6 @@ export default function Home() {
           
           console.log(`📊 Filter results: ${stats.passed}/${stats.total} passed`);
           console.log("Filter breakdown:", stats.reasons);
-          
-          setFilterStats(stats);
 
           // Show notification if many places were filtered
           if (stats.filtered > stats.passed && stats.filtered > 10) {
@@ -611,18 +593,12 @@ export default function Home() {
                           <div className="flex items-center gap-4 mt-4 text-sm opacity-70">
                             <span className="flex items-center gap-2">
                               <TrendingUp className="w-4 h-4" />
-                              {filterStats.passed} activities shown
+                              {places.length} activities shown
                             </span>
                             <span className="flex items-center gap-2">
                               <MapPin className="w-4 h-4" />
                               Within {preferences.filters.maxRadius}km radius
                             </span>
-                            {filterStats.filtered > 0 && (
-                              <span className="flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4" />
-                                {filterStats.filtered} filtered out
-                              </span>
-                            )}
                           </div>
                         )}
                       </div>
@@ -665,9 +641,6 @@ export default function Home() {
         {/* Main Content Area */}
         {!isPageLoading && !displayError && weatherData && (
           <div className="container mx-auto px-4 pb-12">
-            {/* Filter Summary - NEW! */}
-            {places.length > 0 && <FilterSummary stats={filterStats} isDarkTheme={isDarkTheme} />}
-            
             {/* Conditional Rendering: List or Map View */}
             {viewMode === 'list' ? (
               <ActivityList
