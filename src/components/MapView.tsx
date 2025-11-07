@@ -820,6 +820,33 @@ export default function MapView({
               ">${place.formattedAddress}</p>
             </div>
           ` : ''}
+
+          <!-- ADD THIS EDITORIAL SUMMARY SECTION: -->
+          ${place.editorialSummary?.text ? `
+            <div style="
+              padding: 14px 16px;
+              background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+              border-radius: 14px;
+              margin-bottom: 18px;
+              border: 2px solid #bfdbfe;
+              box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+            ">
+              <div style="display: flex; align-items: start; gap: 12px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" style="flex-shrink: 0; margin-top: 3px;">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M12 16v-4"></path>
+                  <path d="M12 8h.01"></path>
+                </svg>
+                <p style="
+                  margin: 0;
+                  font-size: 13px;
+                  color: #1e40af;
+                  line-height: 1.6;
+                  font-weight: 500;
+                ">${place.editorialSummary.text}</p>
+              </div>
+            </div>
+          ` : ''}          
           
           <!-- Enhanced CTA button with hover state -->
           <button 

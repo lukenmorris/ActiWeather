@@ -19,6 +19,10 @@ interface PlaceDetail extends GooglePlace {
     internationalPhoneNumber?: string;
     nationalPhoneNumber?: string;
     googleMapsUri?: string;
+    editorialSummary?: {
+      text: string;
+      languageCode?: string;
+    };
     photos?: Array<{
         name: string;
         widthPx?: number;
@@ -73,7 +77,7 @@ interface ActivityDetailModalProps {
     placeId: string;
     initialData?: GooglePlace;
     userCoordinates?: Coordinates | null;
-    weatherData?: any; // Add weatherData prop
+    weatherData?: any;
 }
 
 // Category configurations for consistent theming
@@ -178,7 +182,7 @@ const getPhotoUrl = (photoName: string, maxWidth: number = 800): string => {
     return `/api/placephoto?name=${encodeURIComponent(photoName)}&maxWidthPx=${maxWidth}`;
 };
 
-// Score Breakdown Component
+// Score Breakdown Component (keeping existing implementation)
 const ScoreBreakdownChart: React.FC<{ 
     place: PlaceDetail; 
     weatherData: any;
@@ -227,11 +231,11 @@ const ScoreBreakdownChart: React.FC<{
     
     // Get overall score color
     const getScoreGradient = (score: number) => {
-        if (score >= 85) return { from: '#fb923c', to: '#ef4444' }; // orange-400 to red-500
-        if (score >= 75) return { from: '#facc15', to: '#fb923c' }; // yellow-400 to orange-400
-        if (score >= 65) return { from: '#4ade80', to: '#10b981' }; // green-400 to emerald-500
-        if (score >= 55) return { from: '#60a5fa', to: '#06b6d4' }; // blue-400 to cyan-500
-        return { from: '#9ca3af', to: '#6b7280' }; // gray-400 to gray-500
+        if (score >= 85) return { from: '#fb923c', to: '#ef4444' };
+        if (score >= 75) return { from: '#facc15', to: '#fb923c' };
+        if (score >= 65) return { from: '#4ade80', to: '#10b981' };
+        if (score >= 55) return { from: '#60a5fa', to: '#06b6d4' };
+        return { from: '#9ca3af', to: '#6b7280' };
     };
     
     const getScoreGradientClass = (score: number) => {
@@ -655,6 +659,31 @@ export default function ActivityDetailModal({
                                     </div>
                                 </div>
 
+                                {/* PREMIUM GLASSMORPHIC EDITORIAL SUMMARY */}
+                                {details.editorialSummary?.text && (
+                                    <div className="relative mb-6 group">
+                                        {/* Gradient border effect */}
+                                        <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl opacity-20 group-hover:opacity-30 blur transition duration-300"></div>
+                                        
+                                        {/* Content card */}
+                                        <div className="relative p-5 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10">
+                                            <div className="flex items-start gap-4">
+                                                <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex-shrink-0">
+                                                    <Sparkles className="w-5 h-5 text-purple-400" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <h4 className="text-xs font-bold opacity-60 uppercase tracking-wider mb-2">
+                                                        About This Place
+                                                    </h4>
+                                                    <p className="text-sm leading-relaxed opacity-90">
+                                                        {details.editorialSummary.text}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Quick Actions */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
                                     {details.internationalPhoneNumber && (
@@ -712,7 +741,7 @@ export default function ActivityDetailModal({
                                         </div>
                                     )}
                                     
-                                    {/* Opening Hours - FIXED DAY HIGHLIGHTING */}
+                                    {/* Opening Hours */}
                                     {details.regularOpeningHours?.weekdayDescriptions && (
                                         <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
                                             <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
@@ -721,53 +750,39 @@ export default function ActivityDetailModal({
                                             </h3>
                                             <div className="space-y-2 text-sm">
                                                 {details.regularOpeningHours.weekdayDescriptions.map((day, index) => {
-                                                    // Get the day name from the description string (e.g., "Monday: 9:00 AM – 5:00 PM")
                                                     const dayName = day.split(':')[0].trim();
                                                     
-                                                    // Calculate current local time at the place
                                                     let currentLocalHour: number;
                                                     let currentLocalDay: string;
                                                     
                                                     if (weatherData?.timezone !== undefined) {
-                                                        // Calculate local day/time at the place using timezone offset
-                                                        const now = Date.now() / 1000; // Current UTC timestamp in seconds
-                                                        const localTime = now + weatherData.timezone; // Adjust by timezone offset
+                                                        const now = Date.now() / 1000;
+                                                        const localTime = now + weatherData.timezone;
                                                         const localDate = new Date(localTime * 1000);
-                                                        const todayIndex = localDate.getUTCDay(); // Use UTC methods since we already adjusted
+                                                        const todayIndex = localDate.getUTCDay();
                                                         currentLocalDay = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][todayIndex];
                                                         currentLocalHour = localDate.getUTCHours();
                                                     } else {
-                                                        // Fallback to browser's local time
                                                         const now = new Date();
                                                         currentLocalDay = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][now.getDay()];
                                                         currentLocalHour = now.getHours();
                                                     }
                                                     
-                                                    // Check if we're in an early morning period (12 AM - 5 AM)
-                                                    // that might belong to the previous day's operating hours
                                                     let isToday = dayName === currentLocalDay;
                                                     
                                                     if (currentLocalHour >= 0 && currentLocalHour < 5) {
-                                                        // We're in early morning - check if previous day should be highlighted instead
-                                                        // This handles cases like "Thursday: 10:00 PM – 2:00 AM" when it's Friday 1 AM
-                                                        
                                                         const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                                                         const currentDayIndex = dayOrder.indexOf(currentLocalDay);
                                                         const yesterdayIndex = (currentDayIndex - 1 + 7) % 7;
                                                         const yesterdayName = dayOrder[yesterdayIndex];
                                                         
-                                                        // Check if this is yesterday's entry
                                                         if (dayName === yesterdayName) {
-                                                            // Check if the hours string suggests it runs past midnight
-                                                            // Look for patterns like "– 2:00 AM" or "– 1:30 AM" etc.
                                                             const timeMatch = day.match(/–\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
                                                             if (timeMatch) {
                                                                 const closingHour = parseInt(timeMatch[1]);
                                                                 const closingPeriod = timeMatch[3].toUpperCase();
                                                                 
-                                                                // If closing time is AM and between 12-5 AM, this period likely spans past midnight
                                                                 if (closingPeriod === 'AM' && closingHour >= 1 && closingHour <= 5) {
-                                                                    // Highlight yesterday's entry since we're in its late-night period
                                                                     isToday = true;
                                                                 }
                                                             }

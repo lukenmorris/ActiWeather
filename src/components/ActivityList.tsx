@@ -324,11 +324,11 @@ const PlaceCard: React.FC<{
                 <RatingDisplay rating={place.rating} count={place.userRatingCount} />
               </div>
               
-              {/* Address */}
-              <div className="flex items-start gap-2 mt-3 text-sm opacity-70">
-                <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                <span className="line-clamp-1">{place.formattedAddress}</span>
-              </div>
+            {/* Address */}
+            <div className="flex items-start gap-2 mt-3 text-sm opacity-70">
+              <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span className="line-clamp-1">{place.formattedAddress}</span>
+            </div>
             </div>
             
             {/* Score Display - Enhanced */}

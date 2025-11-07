@@ -60,7 +60,10 @@ export interface WeatherData {
     rating?: number;
     userRatingCount?: number;
     formattedAddress?: string;
-    // UPDATED: Added full opening hours structure
+    editorialSummary?: {
+      text: string;
+      languageCode?: string;
+    };
     currentOpeningHours?: {
         openNow?: boolean;
         periods?: Array<{
