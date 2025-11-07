@@ -1,7 +1,7 @@
 // src/app/page.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 // Import Components
 import WeatherDisplay from '@/components/WeatherDisplay';
@@ -9,12 +9,20 @@ import ActivityList from '@/components/ActivityList';
 import PreferencesPanel from '@/components/PreferencesPanel';
 import PreferencesIndicator from '@/components/PreferencesIndicator';
 import MapView from '@/components/MapView';
+import FilterSummary from '@/components/FilterSummary';
+import ToastNotification, { useToast } from '@/components/ToastNotification';
 
 // Import Hooks and Utils
 import useGeolocation from '@/hooks/useGeolocation';
 import { getSuitableCategories, getPlaceTypesForCategory } from '@/lib/activityMapper';
 import { useUserPreferences } from '@/context/UserPreferencesContext';
-import { calculateWeatherSuitability } from '@/lib/geoUtils';
+import { calculateWeatherSuitability, calculateDistance } from '@/lib/geoUtils';
+import { 
+  filterPlaces, 
+  applyPreferenceScoring,
+  getSuggestedPlaceTypes,
+  type FilterStats 
+} from '@/lib/applyPreferences';
 
 // Import Types
 import type { Coordinates, WeatherData, GooglePlace } from '@/types';
@@ -23,7 +31,7 @@ import type { Coordinates, WeatherData, GooglePlace } from '@/types';
 import { 
   Activity, MapPin, Sparkles, TrendingUp, 
   Sun, Moon, CloudRain, CloudSnow, Cloud,
-  Loader2, AlertCircle, Settings, Map, List
+  Loader2, AlertCircle, Settings, Map as MapIcon, List
 } from 'lucide-react';
 
 // --- Constants ---
@@ -47,17 +55,47 @@ export default function Home() {
   const [places, setPlaces] = useState<GooglePlace[]>([]);
   const [placesLoading, setPlacesLoading] = useState<boolean>(false);
   const [placesError, setPlacesError] = useState<string | null>(null);
+  
+  // NEW: Filter stats for summary
+  const [filterStats, setFilterStats] = useState<FilterStats>({
+    total: 0,
+    passed: 0,
+    filtered: 0,
+    reasons: {}
+  });
 
   // Theme State
   const [theme, setTheme] = useState('theme-default');
 
-  // View State - NEW
+  // View State
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
   // Preferences
-  const { preferences, getEffectivePlaceTypes, isPlaceTypeAllowed, getPersonalizedScore } = useUserPreferences();
+  const { preferences, getEffectivePlaceTypes, isPlaceTypeAllowed, onPreferencesChange } = useUserPreferences();
   const [showPreferences, setShowPreferences] = useState(false);
+  
+  // Toast notifications
+  const toast = useToast();
+  
+  // Stabilize toast functions
+  const showInfo = useCallback((msg: string) => {
+    toast.info(msg);
+  }, []);
+  
+  const showSuccess = useCallback((msg: string) => {
+    toast.success(msg);
+  }, []);
+
+  // Listen for preference changes and show notifications
+  useEffect(() => {
+    const unsubscribe = onPreferencesChange((newPrefs) => {
+      console.log('✅ Preferences changed, results will update');
+      // We don't show toast on every change to avoid spam
+      // Toast will show when filters significantly change results
+    });
+    return unsubscribe;
+  }, [onPreferencesChange]);
 
   // --- Helper Functions for Theme ---
   const getWeatherTheme = (weather: WeatherData | null): string => {
@@ -199,41 +237,76 @@ export default function Home() {
     }
   }, [geoCoordinates?.latitude, geoCoordinates?.longitude]);
 
-  // --- Effect for Fetching Places with Preferences ---
+  // Create stable reference for preferences that only changes when values actually change
+  const preferencesKey = useMemo(() => {
+    return JSON.stringify({
+      filters: preferences.filters,
+      favorites: preferences.activityTypes.favorites,
+      blacklist: preferences.activityTypes.blacklist,
+      mood: preferences.activityTypes.activeMood,
+      weights: preferences.scoringWeights
+    });
+  }, [
+    preferences.filters,
+    preferences.activityTypes.favorites,
+    preferences.activityTypes.blacklist,
+    preferences.activityTypes.activeMood,
+    preferences.scoringWeights
+  ]);
+
+  // --- Effect for Fetching Places with FULL PREFERENCE INTEGRATION ---
+  // Memoize preference values to avoid infinite loops
+  const preferencesHash = useMemo(() => {
+    return JSON.stringify({
+      filters: preferences.filters,
+      favorites: preferences.activityTypes.favorites,
+      blacklist: preferences.activityTypes.blacklist,
+      activeMood: preferences.activityTypes.activeMood,
+      scoringWeights: preferences.scoringWeights,
+    });
+  }, [
+    preferences.filters,
+    preferences.activityTypes.favorites,
+    preferences.activityTypes.blacklist,
+    preferences.activityTypes.activeMood,
+    preferences.scoringWeights,
+  ]);
+  
+  // Create stable preferences object for use in effect
+  const stablePreferences = useMemo(() => preferences, [preferencesHash]);
+
   useEffect(() => {
     const latitude = geoCoordinates?.latitude;
     const longitude = geoCoordinates?.longitude;
-    const radius = preferences.filters.maxRadius * 1000; // Convert km to meters
+    const radius = stablePreferences.filters.maxRadius * 1000; // Convert km to meters
 
     if (suggestedTypes && suggestedTypes.length > 0 && typeof latitude === 'number' && typeof longitude === 'number') {
-      console.log("Places Effect: Suggested types available, fetching places...");
+      console.log("🔍 Places Effect: Starting place fetch with preferences...");
+      console.log("📋 Active filters:", preferences.filters);
+      console.log("❤️  Favorites:", preferences.activityTypes.favorites);
+      console.log("🚫 Blacklist:", preferences.activityTypes.blacklist);
+      console.log("🎭 Active mood:", preferences.activityTypes.activeMood);
+      
       setPlacesLoading(true);
       setPlaces([]);
       setPlacesError(null);
 
       const fetchPlacesForSuggestions = async () => {
         try {
-          // Filter suggested types based on user preferences
-          let typesToFetch = Array.from(new Set(suggestedTypes));
+          // Get suggested types combined with user preferences
+          const typesToFetch = getSuggestedPlaceTypes(stablePreferences, suggestedTypes);
           
-          // Remove blacklisted types
-          typesToFetch = typesToFetch.filter(type => isPlaceTypeAllowed(type));
-          
-          // Add favorite types if not already included
-          const effectiveTypes = getEffectivePlaceTypes();
-          effectiveTypes.included.forEach(type => {
-            if (!typesToFetch.includes(type)) {
-              typesToFetch.push(type);
-            }
-          });
-          
+          console.log(`📍 Fetching ${typesToFetch.length} place types:`, typesToFetch);
+          console.log('🔍 Debug - suggestedTypes:', suggestedTypes);
+          console.log('🔍 Debug - preferences:', stablePreferences);
+
           if (typesToFetch.length === 0) {
+            console.log("⚠️  No place types to fetch after applying preferences");
             setPlaces([]); 
             setPlacesLoading(false); 
+            showInfo('No activities match your current preferences');
             return;
           }
-          
-          console.log("Fetching places for types:", typesToFetch);
 
           const fetchPromises = typesToFetch.map(type => {
             const apiUrl = `/api/places?lat=${latitude}&lon=${longitude}&radius=${radius}&type=${type}`;
@@ -245,7 +318,7 @@ export default function Home() {
           const uniquePlaceIds = new Set<string>();
           let fetchErrors: string[] = [];
 
-          console.log("Processing settled places responses...");
+          console.log("Processing places responses...");
           for (const result of settledResponses) {
             if (result.status === 'fulfilled') {
               const response = result.value;
@@ -254,18 +327,6 @@ export default function Home() {
                 if (response.ok && Array.isArray(placesOfType)) {
                   placesOfType.forEach(place => {
                     if (place.id && !uniquePlaceIds.has(place.id)) {
-                      // Check minimum rating filter
-                      if (preferences.filters.minRating > 0 && 
-                          (!place.rating || place.rating < preferences.filters.minRating)) {
-                        return; // Skip this place
-                      }
-                      
-                      // Check open now filter
-                      if (preferences.filters.openNowOnly && 
-                          place.currentOpeningHours?.openNow === false) {
-                        return; // Skip closed places
-                      }
-                      
                       uniquePlaceIds.add(place.id);
                       aggregatedPlaces.push(place);
                     }
@@ -289,17 +350,95 @@ export default function Home() {
             }
           }
 
-          console.log(`Aggregated ${aggregatedPlaces.length} unique places.`);
-          setPlaces(aggregatedPlaces);
+          console.log(`✅ Fetched ${aggregatedPlaces.length} total places`);
 
-          if (aggregatedPlaces.length === 0 && fetchErrors.length > 0) {
+          // If no places at all, stop here
+          if (aggregatedPlaces.length === 0) {
+            console.log('⚠️  No places fetched from API');
+            setPlaces([]);
+            setPlacesLoading(false);
+            setFilterStats({
+              total: 0,
+              passed: 0,
+              filtered: 0,
+              reasons: {}
+            });
+            return;
+          }
+
+          // Calculate distances for all places
+          const distanceMap = new Map<string, number>();
+          aggregatedPlaces.forEach(place => {
+            if (place.location) {
+              const distance = calculateDistance(
+                latitude,
+                longitude,
+                place.location.latitude,
+                place.location.longitude
+              );
+              distanceMap.set(place.id, distance);
+            }
+          });
+
+          // **STEP 1: APPLY FILTERS** 
+          console.log("🔧 Applying preference filters...");
+          const { filtered: filteredPlaces, stats } = filterPlaces(
+            aggregatedPlaces,
+            stablePreferences,
+            distanceMap
+          );
+          
+          console.log(`📊 Filter results: ${stats.passed}/${stats.total} passed`);
+          console.log("Filter breakdown:", stats.reasons);
+          
+          setFilterStats(stats);
+
+          // Show notification if many places were filtered
+          if (stats.filtered > stats.passed && stats.filtered > 10) {
+            showInfo(`${stats.filtered} places hidden by your filters`);
+          }
+
+          // **STEP 2: APPLY PREFERENCE-WEIGHTED SCORING**
+          console.log("⚖️  Applying preference-weighted scoring...");
+          const scoredPlaces = filteredPlaces.map(place => {
+            const distance = distanceMap.get(place.id);
+            const placeWithDistance = { ...place, distance };
+            
+            // Get weatherData from closure - don't need it in dependencies
+            if (weatherData) {
+              const score = applyPreferenceScoring(
+                placeWithDistance,
+                weatherData,
+                stablePreferences
+              );
+              
+              return {
+                ...placeWithDistance,
+                suitabilityScore: score
+              };
+            }
+            
+            return placeWithDistance;
+          });
+
+          // Sort by score
+          scoredPlaces.sort((a, b) => {
+            const scoreA = a.suitabilityScore || 0;
+            const scoreB = b.suitabilityScore || 0;
+            return scoreB - scoreA;
+          });
+
+          console.log(`🎯 Final results: ${scoredPlaces.length} scored and sorted places`);
+          setPlaces(scoredPlaces);
+
+          if (scoredPlaces.length === 0 && fetchErrors.length > 0) {
             setPlacesError(`Could not fetch activities. ${fetchErrors.slice(0, 1).join('; ')}`);
           } else if (fetchErrors.length > 0) {
             console.warn("Some place searches failed:", fetchErrors);
           }
 
         } catch (err: any) {
-          console.error("Error fetching places data:", err);
+          console.error("❌ Error fetching places data:", err);
           setPlacesError(err.message || "An error occurred while finding activities.");
           setPlaces([]);
         } finally {
@@ -312,7 +451,16 @@ export default function Home() {
       setPlacesLoading(false);
       setPlacesError(null);
     }
-  }, [suggestedTypes, geoCoordinates?.latitude, geoCoordinates?.longitude, preferences.filters, isPlaceTypeAllowed, getEffectivePlaceTypes]);
+  }, [
+    suggestedTypes, 
+    geoCoordinates?.latitude, 
+    geoCoordinates?.longitude, 
+    preferencesHash
+    // Note: weatherData is used inside but not a dependency because:
+    // - We only want to refetch when location/suggestions/preferences change
+    // - weatherData changing shouldn't trigger a refetch (causes infinite loop)
+    // - The weatherData object is available in closure when the effect runs
+  ]);
 
   // --- Determine Overall Loading / Error State for UI ---
   const isPageLoading = geoLoading || weatherLoading || summaryLoading;
@@ -324,7 +472,10 @@ export default function Home() {
   // --- Component Return ---
   return (
     <main className={`min-h-screen ${getThemeClasses(theme)} transition-all duration-1000 ease-in-out relative overflow-hidden`}>
-      {/* Map button - show in list view and not when map is fullscreen */}
+      {/* Toast Notifications */}
+      <ToastNotification toasts={toast.toasts} onRemove={toast.removeToast} />
+      
+      {/* Map button */}
       {viewMode === 'list' && !isMapFullscreen && !isPageLoading && !displayError && weatherData && places.length > 0 && (
         <button
           onClick={() => setViewMode('map')}
@@ -335,12 +486,12 @@ export default function Home() {
           } shadow-lg hover:shadow-xl transform hover:scale-105`}
           aria-label="Switch to map view"
         >
-          <Map className="w-4 h-4" />
+          <MapIcon className="w-4 h-4" />
           <span className="text-sm font-medium">Map</span>
         </button>
       )}
 
-      {/* List button - show in map view and not when map is fullscreen */}
+      {/* List button */}
       {viewMode === 'map' && !isMapFullscreen && !isPageLoading && !displayError && weatherData && places.length > 0 && (
         <button
           onClick={() => setViewMode('list')}
@@ -356,7 +507,7 @@ export default function Home() {
         </button>
       )}
 
-      {/* Settings Button - hide when map is fullscreen */}
+      {/* Settings Button */}
       {!isMapFullscreen && (
         <button
           onClick={() => setShowPreferences(true)}
@@ -460,12 +611,18 @@ export default function Home() {
                           <div className="flex items-center gap-4 mt-4 text-sm opacity-70">
                             <span className="flex items-center gap-2">
                               <TrendingUp className="w-4 h-4" />
-                              {places.length} activities found
+                              {filterStats.passed} activities shown
                             </span>
                             <span className="flex items-center gap-2">
                               <MapPin className="w-4 h-4" />
                               Within {preferences.filters.maxRadius}km radius
                             </span>
+                            {filterStats.filtered > 0 && (
+                              <span className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4" />
+                                {filterStats.filtered} filtered out
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -508,6 +665,9 @@ export default function Home() {
         {/* Main Content Area */}
         {!isPageLoading && !displayError && weatherData && (
           <div className="container mx-auto px-4 pb-12">
+            {/* Filter Summary - NEW! */}
+            {places.length > 0 && <FilterSummary stats={filterStats} isDarkTheme={isDarkTheme} />}
+            
             {/* Conditional Rendering: List or Map View */}
             {viewMode === 'list' ? (
               <ActivityList

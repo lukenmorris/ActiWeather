@@ -65,7 +65,6 @@ const WIND_WINDY_MPH = 25;
 const CLOUDS_OVERCAST = 80; // %
 const VISIBILITY_POOR = 1000; // meters
 const HUMIDITY_HIGH = 75; // %
-const UV_INDEX_HIGH = 6;
 
 // Place Type Classifications
 const INDOOR_HEAVY_TYPES = new Set([
@@ -101,13 +100,13 @@ const WEATHER_REFUGE_TYPES = new Set([
 
 /**
  * Enhanced scoring breakdown for transparency
+ * UPDATED: Removed uniquenessBonus, redistributed to other categories
  */
 export interface ScoreBreakdown {
-    weatherMatch: number;      // 0-30 points
-    timeCompatibility: number; // 0-25 points
-    distanceScore: number;     // 0-20 points
-    popularityScore: number;   // 0-15 points
-    uniquenessBonus: number;   // 0-10 points
+    weatherMatch: number;      // 0-35 points (was 30, +5)
+    timeCompatibility: number; // 0-30 points (was 25, +5)
+    distanceScore: number;     // 0-20 points (same)
+    popularityScore: number;   // 0-15 points (same)
     totalScore: number;        // 0-100
     confidence: 'high' | 'medium' | 'low';
     primaryFactors: string[];
@@ -179,6 +178,7 @@ function calculatePopularityScore(rating?: number, reviewCount?: number): number
 
 /**
  * Calculate distance score with decay function
+ * UPDATED: Now worth 20 points (unchanged, but proportionally more important)
  */
 function calculateDistanceScore(distanceKm: number): number {
     if (distanceKm <= 0.5) return 20;  // Walking distance
@@ -191,6 +191,7 @@ function calculateDistanceScore(distanceKm: number): number {
 
 /**
  * Calculate time compatibility with granular checks
+ * UPDATED: Now worth 30 points (was 25, +5 from uniqueness removal)
  */
 function calculateTimeCompatibility(
     placeTypes: string[],
@@ -198,48 +199,49 @@ function calculateTimeCompatibility(
     isWeekend: boolean,
     isOpenNow?: boolean
 ): number {
-    let score = 15; // Base score if open
+    let score = 18; // Base score if open (was 15, +3)
     
     // Heavily penalize if closed
     if (isOpenNow === false) return 0;
     
-    // Peak hours bonus
+    // Peak hours bonus (increased bonuses)
     const isPeakDining = (localHour >= 11 && localHour <= 14) || (localHour >= 18 && localHour <= 21);
     const isPeakShopping = (localHour >= 10 && localHour <= 20);
     const isPeakNightlife = (localHour >= 21 || localHour <= 2);
     const isPeakOutdoor = (localHour >= 6 && localHour <= 18);
     
-    // Type-specific time bonuses
+    // Type-specific time bonuses (slightly increased)
     if (placeTypes.some(t => ['restaurant', 'cafe', 'bakery'].includes(t)) && isPeakDining) {
-        score += 8;
+        score += 9; // was 8
     }
     if (placeTypes.some(t => ['bar', 'night_club'].includes(t)) && isPeakNightlife) {
-        score += 10;
+        score += 12; // was 10
     }
     if (placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t)) && isPeakOutdoor) {
-        score += 5;
+        score += 6; // was 5
     }
     if (placeTypes.some(t => ['shopping_mall', 'clothing_store'].includes(t)) && isPeakShopping) {
-        score += 5;
+        score += 6; // was 5
     }
     
-    // Weekend bonus for leisure activities
+    // Weekend bonus for leisure activities (slightly increased)
     if (isWeekend && placeTypes.some(t => ['park', 'zoo', 'museum', 'amusement_park'].includes(t))) {
-        score += 5;
+        score += 6; // was 5
     }
     
-    return Math.min(25, score);
+    return Math.min(30, score); // was 25
 }
 
 /**
  * Calculate weather match with nuanced conditions
+ * UPDATED: Now worth 35 points (was 30, +5 from uniqueness removal)
  */
 function calculateWeatherMatch(
     place: GooglePlace,
     weatherData: WeatherData,
     hasOutdoorSeating: boolean = false
 ): number {
-    let score = 15; // Base neutral score
+    let score = 17; // Base neutral score (was 15, +2)
     const placeTypes = place.types || [];
     
     // Extract weather parameters
@@ -265,89 +267,52 @@ function calculateWeatherMatch(
     const isMild = feelsLike >= TEMP_MILD_LOW && feelsLike <= TEMP_MILD_HIGH;
     const isExtreme = feelsLike < TEMP_FREEZING || feelsLike > TEMP_HOT;
     
-    // Perfect conditions bonus
+    // Perfect conditions bonus (increased)
     if (isMild && !isPrecipitating && windSpeedMph < WIND_BREEZY_MPH) {
         if (isStrictlyOutdoor || hasOutdoorSeating) {
-            score += 15; // Perfect outdoor weather
+            score += 18; // was 15, perfect outdoor weather
         } else if (isStrictlyIndoor) {
             score -= 5; // Missing out on nice weather
         }
     }
     
-    // Bad weather adjustments
+    // Bad weather adjustments (slightly increased)
     if (isPrecipitating) {
         if (isStrictlyIndoor || placeTypes.some(t => WEATHER_REFUGE_TYPES.has(t))) {
-            score += 12; // Good refuge
-            if (isHeavyPrecip) score += 3;
+            score += 14; // was 12, good refuge
+            if (isHeavyPrecip) score += 4; // was 3
         } else if (isStrictlyOutdoor) {
-            score -= 10;
-            if (isHeavyPrecip) score -= 5;
-            if (isThunderstorm) score -= 3;
+            score -= 12; // was 10
+            if (isHeavyPrecip) score -= 6; // was 5
+            if (isThunderstorm) score -= 4; // was 3
         }
     }
     
-    // Extreme temperature adjustments
+    // Extreme temperature adjustments (slightly increased)
     if (isExtreme) {
         if (isStrictlyIndoor) {
-            score += 10; // Climate controlled
+            score += 12; // was 10, climate controlled
         } else if (isStrictlyOutdoor) {
-            score -= 12;
+            score -= 14; // was 12
         }
     }
     
-    // Special conditions
-    if (feelsLike > TEMP_WARM && placeTypes.includes('ice_cream_shop')) score += 5;
-    if (feelsLike < TEMP_COOL && placeTypes.includes('cafe')) score += 3;
-    if (isSnowing && placeTypes.includes('spa')) score += 5;
-    if (humidity > HUMIDITY_HIGH && feelsLike > TEMP_WARM) {
-        if (placeTypes.includes('swimming_pool')) score += 5;
-        else if (isStrictlyOutdoor) score -= 3;
-    }
-    
-    // Wind penalty for outdoor
+    // Wind penalty for outdoor (slightly increased)
     if (windSpeedMph > WIND_WINDY_MPH && (isStrictlyOutdoor || hasOutdoorSeating)) {
-        score -= 5;
+        score -= 6; // was 5
     }
     
-    return Math.max(0, Math.min(30, score));
-}
-
-/**
- * Calculate uniqueness bonus based on special features
- */
-function calculateUniquenessBonus(
-    place: GooglePlace,
-    weatherData: WeatherData,
-    placeDetails?: any
-): number {
-    let bonus = 0;
-    const placeTypes = place.types || [];
-    const hour = new Date((weatherData.dt + weatherData.timezone) * 1000).getUTCHours();
-    
-    // Rare or special venue types
-    if (placeTypes.includes('aquarium') || placeTypes.includes('planetarium')) bonus += 3;
-    if (placeTypes.includes('rooftop_bar') && weatherData.weather[0]?.main === 'Clear') bonus += 5;
-    
-    // Special features from details
-    if (placeDetails?.outdoorSeating && weatherData.main.feels_like >= TEMP_MILD_LOW && 
-        weatherData.main.feels_like <= TEMP_WARM && !weatherData.rain) bonus += 3;
-    
-    // Time-specific uniqueness
-    if (hour < 7 && placeTypes.includes('bakery')) bonus += 4; // Early morning bakery
-    if (hour >= 22 && placeTypes.includes('night_club')) bonus += 3; // Late night venue
-    
-    // Weather-specific perfect matches
-    // Check if it's snowing based on weather condition ID (6xx codes are for snow)
-    const isSnowing = weatherData.weather[0]?.id && Math.floor(weatherData.weather[0].id / 100) === 6;
-    if (isSnowing && placeTypes.includes('ski_resort')) bonus += 5;
-    if (weatherData.main.temp > TEMP_HOT && placeTypes.includes('water_park')) bonus += 5;
-    
-    return Math.min(10, bonus);
+    return Math.max(0, Math.min(35, score)); // was 30
 }
 
 /**
  * Enhanced weather suitability scoring system
- * Returns a score from 0-100 with detailed breakdown
+ * UPDATED: 4 categories instead of 5, totaling 100 points
+ * - Weather Match: 35 points (was 30)
+ * - Time Compatibility: 30 points (was 25)
+ * - Distance: 20 points (unchanged)
+ * - Popularity: 15 points (unchanged)
+ * Total: 100 points
  */
 export function calculateWeatherSuitability(
     place: GooglePlace | (GooglePlace & { distance?: number }),
@@ -377,15 +342,13 @@ export function calculateWeatherSuitability(
     const timeCompatibility = calculateTimeCompatibility(place.types, localHour, isWeekend, isOpenNow);
     const distanceScore = calculateDistanceScore(distanceKm);
     const popularityScore = calculatePopularityScore(place.rating, place.userRatingCount);
-    const uniquenessBonus = calculateUniquenessBonus(place, weatherData, placeDetails);
     
     // Calculate total with weights
     const totalScore = Math.round(
-        weatherMatch +           // 30% weight
-        timeCompatibility +      // 25% weight
+        weatherMatch +           // 35% weight
+        timeCompatibility +      // 30% weight
         distanceScore +          // 20% weight
-        popularityScore +        // 15% weight
-        uniquenessBonus          // 10% weight
+        popularityScore          // 15% weight
     );
     
     // Ensure score is within bounds
@@ -398,25 +361,22 @@ export function calculateWeatherSuitability(
             timeCompatibility,
             distanceScore,
             popularityScore,
-            uniquenessBonus,
             totalScore: finalScore,
             confidence: finalScore >= 70 ? 'high' : finalScore >= 50 ? 'medium' : 'low',
             primaryFactors: []
         };
         
         // Identify primary factors
-        if (weatherMatch >= 20) breakdown.primaryFactors.push('Perfect weather match');
-        if (timeCompatibility >= 20) breakdown.primaryFactors.push('Ideal timing');
+        if (weatherMatch >= 25) breakdown.primaryFactors.push('Perfect weather match');
+        if (timeCompatibility >= 23) breakdown.primaryFactors.push('Ideal timing');
         if (distanceScore >= 15) breakdown.primaryFactors.push('Very close');
         if (popularityScore >= 12) breakdown.primaryFactors.push('Highly rated');
-        if (uniquenessBonus >= 5) breakdown.primaryFactors.push('Special features');
         
         console.log(`[Enhanced Scoring] ${place.displayName?.text || 'Unknown'}`);
-        console.log(`  Weather Match: ${weatherMatch}/30`);
-        console.log(`  Time Compatibility: ${timeCompatibility}/25`);
+        console.log(`  Weather Match: ${weatherMatch}/35`);
+        console.log(`  Time Compatibility: ${timeCompatibility}/30`);
         console.log(`  Distance Score: ${distanceScore}/20`);
         console.log(`  Popularity: ${popularityScore.toFixed(1)}/15`);
-        console.log(`  Uniqueness: ${uniquenessBonus}/10`);
         console.log(`  TOTAL: ${finalScore}/100 (${breakdown.confidence} confidence)`);
         if (breakdown.primaryFactors.length > 0) {
             console.log(`  Key Factors: ${breakdown.primaryFactors.join(', ')}`);
@@ -428,6 +388,7 @@ export function calculateWeatherSuitability(
 
 /**
  * Get score breakdown for UI display
+ * UPDATED: No uniquenessBonus field
  */
 export function getScoreBreakdown(
     place: GooglePlace,
@@ -453,18 +414,16 @@ export function getScoreBreakdown(
         timeCompatibility: calculateTimeCompatibility(place.types || [], localHour, isWeekend, isOpenNow),
         distanceScore: calculateDistanceScore(distanceKm),
         popularityScore: calculatePopularityScore(place.rating, place.userRatingCount),
-        uniquenessBonus: calculateUniquenessBonus(place, weatherData, placeDetails),
         totalScore,
         confidence: totalScore >= 70 ? 'high' : totalScore >= 50 ? 'medium' : 'low',
         primaryFactors: []
     };
     
     // Identify primary factors
-    if (breakdown.weatherMatch >= 20) breakdown.primaryFactors.push('Perfect weather');
-    if (breakdown.timeCompatibility >= 20) breakdown.primaryFactors.push('Great timing');
+    if (breakdown.weatherMatch >= 25) breakdown.primaryFactors.push('Perfect weather');
+    if (breakdown.timeCompatibility >= 23) breakdown.primaryFactors.push('Great timing');
     if (breakdown.distanceScore >= 15) breakdown.primaryFactors.push('Very close');
     if (breakdown.popularityScore >= 12) breakdown.primaryFactors.push('Highly rated');
-    if (breakdown.uniquenessBonus >= 5) breakdown.primaryFactors.push('Unique features');
     
     return breakdown;
 }
