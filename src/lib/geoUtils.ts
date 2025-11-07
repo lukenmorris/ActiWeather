@@ -100,13 +100,13 @@ const WEATHER_REFUGE_TYPES = new Set([
 
 /**
  * Enhanced scoring breakdown for transparency
- * UPDATED: Removed uniquenessBonus, redistributed to other categories
+ * CORRECTED: 4 categories totaling 100 points
  */
 export interface ScoreBreakdown {
-    weatherMatch: number;      // 0-35 points (was 30, +5)
-    timeCompatibility: number; // 0-30 points (was 25, +5)
-    distanceScore: number;     // 0-20 points (same)
-    popularityScore: number;   // 0-15 points (same)
+    weatherMatch: number;      // 0-35 points
+    timeCompatibility: number; // 0-30 points
+    distanceScore: number;     // 0-20 points
+    popularityScore: number;   // 0-15 points
     totalScore: number;        // 0-100
     confidence: 'high' | 'medium' | 'low';
     primaryFactors: string[];
@@ -178,7 +178,7 @@ function calculatePopularityScore(rating?: number, reviewCount?: number): number
 
 /**
  * Calculate distance score with decay function
- * UPDATED: Now worth 20 points (unchanged, but proportionally more important)
+ * 20 points maximum
  */
 function calculateDistanceScore(distanceKm: number): number {
     if (distanceKm <= 0.5) return 20;  // Walking distance
@@ -191,7 +191,7 @@ function calculateDistanceScore(distanceKm: number): number {
 
 /**
  * Calculate time compatibility with granular checks
- * UPDATED: Now worth 30 points (was 25, +5 from uniqueness removal)
+ * FIXED: Now properly capped at 30 points maximum
  */
 function calculateTimeCompatibility(
     placeTypes: string[],
@@ -199,49 +199,49 @@ function calculateTimeCompatibility(
     isWeekend: boolean,
     isOpenNow?: boolean
 ): number {
-    let score = 18; // Base score if open (was 15, +3)
+    let score = 18; // Base score if open
     
     // Heavily penalize if closed
     if (isOpenNow === false) return 0;
     
-    // Peak hours bonus (increased bonuses)
+    // Peak hours bonus
     const isPeakDining = (localHour >= 11 && localHour <= 14) || (localHour >= 18 && localHour <= 21);
     const isPeakShopping = (localHour >= 10 && localHour <= 20);
     const isPeakNightlife = (localHour >= 21 || localHour <= 2);
     const isPeakOutdoor = (localHour >= 6 && localHour <= 18);
     
-    // Type-specific time bonuses (slightly increased)
+    // Type-specific time bonuses (adjusted to not exceed 30 total)
     if (placeTypes.some(t => ['restaurant', 'cafe', 'bakery'].includes(t)) && isPeakDining) {
-        score += 9; // was 8
+        score += 9;
     }
     if (placeTypes.some(t => ['bar', 'night_club'].includes(t)) && isPeakNightlife) {
-        score += 12; // was 10
+        score += 12;
     }
     if (placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t)) && isPeakOutdoor) {
-        score += 6; // was 5
+        score += 6;
     }
     if (placeTypes.some(t => ['shopping_mall', 'clothing_store'].includes(t)) && isPeakShopping) {
-        score += 6; // was 5
+        score += 6;
     }
     
-    // Weekend bonus for leisure activities (slightly increased)
+    // Weekend bonus for leisure activities
     if (isWeekend && placeTypes.some(t => ['park', 'zoo', 'museum', 'amusement_park'].includes(t))) {
-        score += 6; // was 5
+        score += 6;
     }
     
-    return Math.min(30, score); // was 25
+    return Math.min(30, score); // Cap at 30 points
 }
 
 /**
  * Calculate weather match with nuanced conditions
- * UPDATED: Now worth 35 points (was 30, +5 from uniqueness removal)
+ * 35 points maximum
  */
 function calculateWeatherMatch(
     place: GooglePlace,
     weatherData: WeatherData,
     hasOutdoorSeating: boolean = false
 ): number {
-    let score = 17; // Base neutral score (was 15, +2)
+    let score = 17; // Base neutral score
     const placeTypes = place.types || [];
     
     // Extract weather parameters
@@ -267,51 +267,51 @@ function calculateWeatherMatch(
     const isMild = feelsLike >= TEMP_MILD_LOW && feelsLike <= TEMP_MILD_HIGH;
     const isExtreme = feelsLike < TEMP_FREEZING || feelsLike > TEMP_HOT;
     
-    // Perfect conditions bonus (increased)
+    // Perfect conditions bonus
     if (isMild && !isPrecipitating && windSpeedMph < WIND_BREEZY_MPH) {
         if (isStrictlyOutdoor || hasOutdoorSeating) {
-            score += 18; // was 15, perfect outdoor weather
+            score += 18; // perfect outdoor weather
         } else if (isStrictlyIndoor) {
             score -= 5; // Missing out on nice weather
         }
     }
     
-    // Bad weather adjustments (slightly increased)
+    // Bad weather adjustments
     if (isPrecipitating) {
         if (isStrictlyIndoor || placeTypes.some(t => WEATHER_REFUGE_TYPES.has(t))) {
-            score += 14; // was 12, good refuge
-            if (isHeavyPrecip) score += 4; // was 3
+            score += 14; // good refuge
+            if (isHeavyPrecip) score += 4;
         } else if (isStrictlyOutdoor) {
-            score -= 12; // was 10
-            if (isHeavyPrecip) score -= 6; // was 5
-            if (isThunderstorm) score -= 4; // was 3
+            score -= 12;
+            if (isHeavyPrecip) score -= 6;
+            if (isThunderstorm) score -= 4;
         }
     }
     
-    // Extreme temperature adjustments (slightly increased)
+    // Extreme temperature adjustments
     if (isExtreme) {
         if (isStrictlyIndoor) {
-            score += 12; // was 10, climate controlled
+            score += 12; // climate controlled
         } else if (isStrictlyOutdoor) {
-            score -= 14; // was 12
+            score -= 14;
         }
     }
     
-    // Wind penalty for outdoor (slightly increased)
+    // Wind penalty for outdoor
     if (windSpeedMph > WIND_WINDY_MPH && (isStrictlyOutdoor || hasOutdoorSeating)) {
-        score -= 6; // was 5
+        score -= 6;
     }
     
-    return Math.max(0, Math.min(35, score)); // was 30
+    return Math.max(0, Math.min(35, score));
 }
 
 /**
  * Enhanced weather suitability scoring system
- * UPDATED: 4 categories instead of 5, totaling 100 points
- * - Weather Match: 35 points (was 30)
- * - Time Compatibility: 30 points (was 25)
- * - Distance: 20 points (unchanged)
- * - Popularity: 15 points (unchanged)
+ * CORRECTED: 4 categories totaling 100 points
+ * - Weather Match: 35 points
+ * - Time Compatibility: 30 points  
+ * - Distance: 20 points
+ * - Popularity: 15 points
  * Total: 100 points
  */
 export function calculateWeatherSuitability(
@@ -388,7 +388,7 @@ export function calculateWeatherSuitability(
 
 /**
  * Get score breakdown for UI display
- * UPDATED: No uniquenessBonus field
+ * CORRECTED: Returns accurate 4-category breakdown
  */
 export function getScoreBreakdown(
     place: GooglePlace,

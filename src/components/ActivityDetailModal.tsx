@@ -202,7 +202,7 @@ const ScoreBreakdownChart: React.FC<{
         {
             label: 'Time Compatibility',
             value: breakdown.timeCompatibility,
-            max: 25,
+            max: 30,
             icon: Clock,
             gradient: 'from-purple-400 to-pink-500',
             description: 'Timing, hours, and peak periods'
@@ -222,14 +222,6 @@ const ScoreBreakdownChart: React.FC<{
             icon: Star,
             gradient: 'from-yellow-400 to-orange-500',
             description: 'Ratings and reviews'
-        },
-        {
-            label: 'Special Features',
-            value: breakdown.uniquenessBonus,
-            max: 10,
-            icon: Sparkles,
-            gradient: 'from-pink-400 to-red-500',
-            description: 'Unique aspects and perfect matches'
         }
     ];
     
@@ -709,7 +701,7 @@ export default function ActivityDetailModal({
 
                                 {/* Info Cards Grid */}
                                 <div className="grid md:grid-cols-2 gap-6 mb-8">
-                                    {/* Score Breakdown Card - NEW */}
+                                    {/* Score Breakdown Card */}
                                     {weatherData && (
                                         <div className="md:col-span-2">
                                             <ScoreBreakdownChart 
@@ -746,40 +738,6 @@ export default function ActivityDetailModal({
                                             </div>
                                         </div>
                                     )}
-
-                                    {/* Features & Services */}
-                                    <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-                                        <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
-                                            <Sparkles className="w-5 h-5 text-yellow-400" />
-                                            Features & Services
-                                        </h3>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {details.accessibilityOptions?.wheelchairAccessibleEntrance && (
-                                                <div className="flex items-center gap-2 text-sm text-white/70">
-                                                    <Shield className="w-4 h-4 text-green-400" />
-                                                    <span>Wheelchair Access</span>
-                                                </div>
-                                            )}
-                                            {details.paymentOptions?.acceptsCreditCards && (
-                                                <div className="flex items-center gap-2 text-sm text-white/70">
-                                                    <CreditCard className="w-4 h-4 text-blue-400" />
-                                                    <span>Cards Accepted</span>
-                                                </div>
-                                            )}
-                                            {details.accessibilityOptions?.wheelchairAccessibleParking && (
-                                                <div className="flex items-center gap-2 text-sm text-white/70">
-                                                    <Car className="w-4 h-4 text-purple-400" />
-                                                    <span>Accessible Parking</span>
-                                                </div>
-                                            )}
-                                            {details.paymentOptions?.acceptsNfc && (
-                                                <div className="flex items-center gap-2 text-sm text-white/70">
-                                                    <Wifi className="w-4 h-4 text-indigo-400" />
-                                                    <span>Contactless Pay</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
                                 </div>
 
                                 {/* Reviews Section */}
