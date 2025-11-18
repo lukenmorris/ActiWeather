@@ -4,7 +4,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 // Import Components
-import WeatherDisplay from '@/components/WeatherDisplay';
 import ActivityList from '@/components/ActivityList';
 import PreferencesPanel from '@/components/PreferencesPanel';
 import PreferencesIndicator from '@/components/PreferencesIndicator';
@@ -380,38 +379,70 @@ export default function Home() {
             showInfo(`${stats.filtered} places hidden by your filters`);
           }
 
-          // **STEP 2: APPLY PREFERENCE-WEIGHTED SCORING**
-          console.log("⚖️  Applying preference-weighted scoring...");
-          const scoredPlaces = filteredPlaces.map(place => {
-            const distance = distanceMap.get(place.id);
-            const placeWithDistance = { ...place, distance };
-            
-            // Get weatherData from closure - don't need it in dependencies
-            if (weatherData) {
-              const score = applyPreferenceScoring(
-                placeWithDistance,
+          // **STEP 2: APPLY HYBRID RECOMMENDATION ENGINE (Dynamic Scoring + AI Reranking)**
+          console.log("🚀 Applying Hybrid Recommendation Engine...");
+
+          let scoredPlaces: GooglePlace[] = [];
+
+          try {
+            // Call the new recommendation API
+            const recommendationResponse = await fetch('/api/recommendations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
                 weatherData,
-                stablePreferences
-              );
-              
-              return {
-                ...placeWithDistance,
-                suitabilityScore: score
-              };
+                places: filteredPlaces,
+                userLocation: { latitude, longitude },
+                maxResults: 50,
+                mood: stablePreferences.activityTypes.activeMood,
+              }),
+            });
+
+            if (!recommendationResponse.ok) {
+              throw new Error('Recommendation API failed');
             }
-            
-            return placeWithDistance;
-          });
 
-          // Sort by score
-          scoredPlaces.sort((a, b) => {
-            const scoreA = a.suitabilityScore || 0;
-            const scoreB = b.suitabilityScore || 0;
-            return scoreB - scoreA;
-          });
+            const recommendationData = await recommendationResponse.json();
 
-          console.log(`🎯 Final results: ${scoredPlaces.length} scored and sorted places`);
-          setPlaces(scoredPlaces);
+            console.log('🤖 AI Recommendation metadata:', recommendationData.metadata);
+
+            // Use the AI-reranked and scored places
+            scoredPlaces = recommendationData.places;
+
+            console.log(`🎯 Final results: ${scoredPlaces.length} AI-ranked places`);
+            console.log(`   Weather severity: ${recommendationData.metadata.weatherSeverity.toFixed(2)}`);
+            console.log(`   AI reranking: ${recommendationData.metadata.aiRerankingApplied ? 'Yes ✅' : 'No (fallback to math)'}`);
+            console.log(`   Weights used:`, recommendationData.metadata.weights);
+
+            setPlaces(scoredPlaces);
+          } catch (error) {
+            console.error('❌ Recommendation API failed, falling back to simple rating sort:', error);
+
+            // Simple fallback: Sort by rating and distance
+            scoredPlaces = filteredPlaces.map(place => {
+              const distance = distanceMap.get(place.id);
+              return { ...place, distance };
+            });
+
+            // Sort by rating (primary) and distance (secondary)
+            scoredPlaces.sort((a, b) => {
+              const ratingA = a.rating || 0;
+              const ratingB = b.rating || 0;
+
+              // First sort by rating
+              if (ratingB !== ratingA) {
+                return ratingB - ratingA;
+              }
+
+              // If ratings equal, sort by distance (closer is better)
+              const distanceA = a.distance || 999999;
+              const distanceB = b.distance || 999999;
+              return distanceA - distanceB;
+            });
+
+            console.log(`🎯 Fallback results: ${scoredPlaces.length} places (sorted by rating)`);
+            setPlaces(scoredPlaces);
+          }
 
           if (scoredPlaces.length === 0 && fetchErrors.length > 0) {
             setPlacesError(`Could not fetch activities. ${fetchErrors.slice(0, 1).join('; ')}`);

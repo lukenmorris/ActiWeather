@@ -83,6 +83,8 @@ export interface WeatherData {
     businessStatus?: 'OPERATIONAL' | 'CLOSED_TEMPORARILY' | 'CLOSED_PERMANENTLY';
     // Calculated distance property (added later in ActivityList)
     distance?: number; // In meters or km
+    // Calculated suitability score (added by recommendation engine)
+    suitabilityScore?: number; // 0-100 score based on weather, time, distance, etc.
   }
   
   // We can also define the Coordinates type here if used often

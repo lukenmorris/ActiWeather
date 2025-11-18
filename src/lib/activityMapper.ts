@@ -17,7 +17,7 @@ export enum ActivityCategory {
 const categoryToPlaceTypes: Record<ActivityCategory, string[]> = {
     [ActivityCategory.OUTDOOR_ACTIVE]: [ 'park', 'hiking_area', 'tourist_attraction', 'stadium', 'playground', 'golf_course' ],
     [ActivityCategory.OUTDOOR_RELAX]: [ 'park', 'tourist_attraction', 'zoo', 'amusement_park', 'garden', 'picnic_ground', 'plaza', 'marina', 'campground' ],
-    [ActivityCategory.INDOOR_ACTIVE]: [ 'gym', 'bowling_alley', 'amusement_center', 'skating_rink', 'aquarium' ], // Aquarium maybe relax?
+    [ActivityCategory.INDOOR_ACTIVE]: [ 'gym', 'bowling_alley', 'amusement_center', 'aquarium' ], // skating_rink not supported by Google Places API
     [ActivityCategory.INDOOR_RELAX]: [ 'movie_theater', 'library', 'cafe', 'spa', 'art_gallery', 'museum', 'book_store', 'beauty_salon', 'hair_care', 'nail_salon' ],
     [ActivityCategory.FOOD_DRINK]: [ 'restaurant', 'cafe', 'bar', 'meal_takeaway', 'bakery', 'food_court', 'ice_cream_shop'],
     [ActivityCategory.SHOPPING]: [ 'shopping_mall', 'book_store', 'clothing_store', 'department_store', 'electronics_store', 'furniture_store', 'home_goods_store', 'jewelry_store', 'shoe_store', 'pet_store', 'convenience_store', 'supermarket', 'liquor_store' ], // User can refine this list

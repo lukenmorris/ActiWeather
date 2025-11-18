@@ -191,7 +191,7 @@ function calculateDistanceScore(distanceKm: number): number {
 
 /**
  * Calculate time compatibility with granular checks
- * FIXED: Now properly capped at 30 points maximum
+ * Maximum: 30 points
  */
 function calculateTimeCompatibility(
     placeTypes: string[],
@@ -199,110 +199,132 @@ function calculateTimeCompatibility(
     isWeekend: boolean,
     isOpenNow?: boolean
 ): number {
-    let score = 18; // Base score if open
-    
     // Heavily penalize if closed
     if (isOpenNow === false) return 0;
-    
+
+    let score = 15; // Base score if open (reduced from 18 to prevent overflow)
+
     // Peak hours bonus
     const isPeakDining = (localHour >= 11 && localHour <= 14) || (localHour >= 18 && localHour <= 21);
     const isPeakShopping = (localHour >= 10 && localHour <= 20);
     const isPeakNightlife = (localHour >= 21 || localHour <= 2);
     const isPeakOutdoor = (localHour >= 6 && localHour <= 18);
-    
-    // Type-specific time bonuses (adjusted to not exceed 30 total)
+
+    // Type-specific time bonuses (reduced to prevent exceeding 30)
     if (placeTypes.some(t => ['restaurant', 'cafe', 'bakery'].includes(t)) && isPeakDining) {
-        score += 9;
+        score += 8;
     }
     if (placeTypes.some(t => ['bar', 'night_club'].includes(t)) && isPeakNightlife) {
-        score += 12;
+        score += 10;
     }
     if (placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t)) && isPeakOutdoor) {
-        score += 6;
+        score += 5;
     }
     if (placeTypes.some(t => ['shopping_mall', 'clothing_store'].includes(t)) && isPeakShopping) {
-        score += 6;
+        score += 5;
     }
-    
+
     // Weekend bonus for leisure activities
     if (isWeekend && placeTypes.some(t => ['park', 'zoo', 'museum', 'amusement_park'].includes(t))) {
-        score += 6;
+        score += 5;
     }
-    
-    return Math.min(30, score); // Cap at 30 points
+
+    // Ensure we never exceed 30 points
+    return Math.min(30, score);
 }
 
 /**
  * Calculate weather match with nuanced conditions
  * 35 points maximum
  */
+/**
+ * Calculate weather match score using the new recommendation engine logic
+ * Integrates with the hybrid recommendation system
+ * Score range: 0-35 points (normalized from 0-100)
+ */
 function calculateWeatherMatch(
     place: GooglePlace,
     weatherData: WeatherData,
     hasOutdoorSeating: boolean = false
 ): number {
-    let score = 17; // Base neutral score
     const placeTypes = place.types || [];
-    
-    // Extract weather parameters
     const conditionId = weatherData.weather[0]?.id ?? 800;
-    const feelsLike = weatherData.main.feels_like;
-    const windSpeedMph = weatherData.wind.speed;
-    const humidity = weatherData.main.humidity;
-    const clouds = weatherData.clouds.all;
-    
-    // Determine weather severity
-    const isPrecipitating = conditionId && [2, 3, 5, 6].includes(Math.floor(conditionId / 100));
-    const isHeavyPrecip = conditionId && [202, 212, 221, 232, 502, 503, 504, 522, 531, 602, 622].includes(conditionId);
-    const isThunderstorm = Math.floor(conditionId / 100) === 2;
-    const isSnowing = Math.floor(conditionId / 100) === 6;
-    
-    // Determine place characteristics
-    const isStrictlyIndoor = placeTypes.some(t => INDOOR_HEAVY_TYPES.has(t)) && 
-                             !placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t));
-    const isStrictlyOutdoor = placeTypes.some(t => OUTDOOR_HEAVY_TYPES.has(t)) && 
-                              !placeTypes.some(t => INDOOR_HEAVY_TYPES.has(t));
-    
-    // Temperature scoring
-    const isMild = feelsLike >= TEMP_MILD_LOW && feelsLike <= TEMP_MILD_HIGH;
-    const isExtreme = feelsLike < TEMP_FREEZING || feelsLike > TEMP_HOT;
-    
-    // Perfect conditions bonus
-    if (isMild && !isPrecipitating && windSpeedMph < WIND_BREEZY_MPH) {
-        if (isStrictlyOutdoor || hasOutdoorSeating) {
-            score += 18; // perfect outdoor weather
-        } else if (isStrictlyIndoor) {
-            score -= 5; // Missing out on nice weather
-        }
+
+    // Convert Fahrenheit to Celsius for new scoring system
+    const tempF = weatherData.main.feels_like;
+    const tempC = ((tempF - 32) * 5) / 9;
+
+    // Calculate severity score (0-1 scale)
+    let severity = 0;
+
+    // Temperature severity
+    if (tempC <= 0) severity += 0.3;
+    else if (tempC <= 5) severity += 0.2;
+    else if (tempC >= 38) severity += 0.3;
+    else if (tempC >= 32) severity += 0.2;
+    else if (tempC >= 18 && tempC <= 25) severity -= 0.1; // Perfect weather
+
+    // Precipitation severity
+    const precipitationCodes = [
+        500, 501, 502, 503, 504, 511, 520, 521, 522, 531, // Rain
+        600, 601, 602, 611, 612, 613, 615, 616, 620, 621, 622, // Snow
+        200, 201, 202, 210, 211, 212, 221, 230, 231, 232, // Thunderstorm
+    ];
+
+    if (precipitationCodes.includes(conditionId)) {
+        severity += conditionId >= 502 ? 0.3 : 0.2; // Heavy vs light precipitation
     }
-    
-    // Bad weather adjustments
-    if (isPrecipitating) {
-        if (isStrictlyIndoor || placeTypes.some(t => WEATHER_REFUGE_TYPES.has(t))) {
-            score += 14; // good refuge
-            if (isHeavyPrecip) score += 4;
-        } else if (isStrictlyOutdoor) {
-            score -= 12;
-            if (isHeavyPrecip) score -= 6;
-            if (isThunderstorm) score -= 4;
-        }
+
+    severity = Math.max(0, Math.min(1, severity));
+
+    // Determine if indoor/outdoor
+    const indoorTypes = [
+        'museum', 'art_gallery', 'library', 'shopping_mall', 'movie_theater',
+        'bowling_alley', 'gym', 'spa', 'cafe', 'restaurant', 'bar', 'aquarium'
+    ];
+
+    const outdoorTypes = [
+        'park', 'tourist_attraction', 'amusement_park', 'zoo', 'campground',
+        'stadium', 'hiking_area', 'beach', 'playground', 'golf_course'
+    ];
+
+    const isIndoor = placeTypes.some(type => indoorTypes.includes(type));
+    const isOutdoor = placeTypes.some(type => outdoorTypes.includes(type));
+
+    let score = 50; // Neutral baseline (0-100 scale)
+
+    // Weather-based scoring
+    if (severity >= 0.7) {
+        // Extreme weather: strongly prefer indoor
+        score = isIndoor ? 90 : (isOutdoor ? 20 : 60);
+    } else if (severity <= 0.3) {
+        // Good weather: prefer outdoor
+        score = isOutdoor ? 90 : (isIndoor ? 60 : 70);
+    } else {
+        // Moderate weather: balanced
+        score = isIndoor ? 70 : (isOutdoor ? 65 : 75);
     }
-    
-    // Extreme temperature adjustments
-    if (isExtreme) {
-        if (isStrictlyIndoor) {
-            score += 12; // climate controlled
-        } else if (isStrictlyOutdoor) {
-            score -= 14;
-        }
+
+    // Temperature adjustments
+    if (tempC < 5) {
+        if (isIndoor) score = Math.min(100, score + 10);
+        if (isOutdoor) score = Math.max(0, score - 15);
+    } else if (tempC > 32) {
+        if (isIndoor) score = Math.min(100, score + 10);
+        if (isOutdoor) score = Math.max(0, score - 15);
+    } else if (tempC >= 18 && tempC <= 25) {
+        // Perfect temperature
+        if (isOutdoor) score = Math.min(100, score + 10);
     }
-    
-    // Wind penalty for outdoor
-    if (windSpeedMph > WIND_WINDY_MPH && (isStrictlyOutdoor || hasOutdoorSeating)) {
-        score -= 6;
+
+    // Precipitation adjustments
+    if (precipitationCodes.includes(conditionId)) {
+        if (isIndoor) score = Math.min(100, score + 15);
+        else if (isOutdoor) score = Math.max(0, score - 20);
     }
-    
-    return Math.max(0, Math.min(35, score));
+
+    // Normalize to 0-35 scale
+    return Math.round((score / 100) * 35);
 }
 
 /**

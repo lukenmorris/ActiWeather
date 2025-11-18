@@ -193,12 +193,13 @@ const ScoreBreakdownChart: React.FC<{
     const breakdown = getScoreBreakdown(place, weatherData, distance || undefined);
     
     // Define score categories with icons and colors
+    // Scoring breakdown: Weather (35) + Time (30) + Distance (20) + Popularity (15) = 100
     const categories = [
         {
             label: 'Weather Match',
             value: breakdown.weatherMatch,
-            max: 30,
-            icon: weatherData.weather[0]?.main === 'Clear' ? Sun : 
+            max: 35, // Fixed: Weather Match is out of 35, not 30
+            icon: weatherData.weather[0]?.main === 'Clear' ? Sun :
                   weatherData.weather[0]?.main === 'Rain' ? CloudRain : Cloud,
             gradient: 'from-blue-400 to-cyan-500',
             description: 'How well this venue suits current conditions'

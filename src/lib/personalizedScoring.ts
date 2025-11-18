@@ -47,7 +47,8 @@ export function calculatePersonalizedScore(
   const weatherComponent = (baseBreakdown.weatherMatch / 30) * normalizedWeights.weather * 100;
   const distanceComponent = (baseBreakdown.distanceScore / 20) * normalizedWeights.distance * 100;
   const ratingsComponent = (baseBreakdown.popularityScore / 15) * normalizedWeights.ratings * 100;
-  const noveltyComponent = (baseBreakdown.uniquenessBonus / 10) * normalizedWeights.novelty * 100;
+  // Novelty component - use a default value since uniquenessBonus doesn't exist in ScoreBreakdown
+  const noveltyComponent = normalizedWeights.novelty * 50; // Neutral default
   
   // Price component (inversely related - lower price = higher score)
   let priceComponent = 0;
